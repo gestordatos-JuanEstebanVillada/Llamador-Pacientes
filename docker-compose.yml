@@ -1,0 +1,39 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      - SCSE_DB_USER=${SCSE_DB_USER}
+      - SCSE_DB_PASSWD=${SCSE_DB_PASSWD}
+      - SCSE_DB_IP=${SCSE_DB_IP}
+      - SCSE_DB_PORT=${SCSE_DB_PORT}
+      - SCSE_DB_DATABASE=${SCSE_DB_DATABASE}
+      - JWT_SECRET=${JWT_SECRET}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - WS_PING_INTERVAL=${WS_PING_INTERVAL}
+      - CALL_TTL_SECONDS=${CALL_TTL_SECONDS}
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    expose:
+      - "80"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
