@@ -31,6 +31,15 @@ def require_admin(user: Usuario = Depends(get_current_user)) -> Usuario:
     return user
 
 
+def require_admin_panel(user: Usuario = Depends(get_current_user)) -> Usuario:
+    if user.rol not in ("ADMIN", "GESTOR"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Se requiere rol ADMIN o GESTOR",
+        )
+    return user
+
+
 def require_medico(user: Usuario = Depends(get_current_user)) -> Usuario:
     if user.rol not in ("MEDICO", "ADMIN"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Se requiere rol MEDICO")

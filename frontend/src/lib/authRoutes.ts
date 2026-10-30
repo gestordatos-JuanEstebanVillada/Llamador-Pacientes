@@ -3,6 +3,7 @@ import type { Rol } from "../types";
 export function routeAfterLogin(rol: Rol): string {
   switch (rol) {
     case "ADMIN":
+    case "GESTOR":
       return "/admin";
     case "MEDICO":
       return "/medico/setup";
@@ -19,7 +20,7 @@ export function defaultRouteForSession(
   hasPantallaConfig: boolean,
 ): string {
   if (!rol) return "/login";
-  if (rol === "ADMIN") return "/admin";
+  if (rol === "ADMIN" || rol === "GESTOR") return "/admin";
   if (rol === "MEDICO") return hasMedicoConfig ? "/medico/call" : "/medico/setup";
   if (rol === "PANTALLA") return hasPantallaConfig ? "/pantalla/view" : "/pantalla/setup";
   return "/login";

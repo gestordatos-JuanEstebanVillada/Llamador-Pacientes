@@ -82,6 +82,21 @@ class Usuario(Base):
     fecha_creacion: Mapped[datetime] = mapped_column("FECHA_CREACION", DateTime)
 
 
+class Auditoria(Base):
+    __tablename__ = "LLAMADOR_AUDITORIA"
+
+    id: Mapped[int] = mapped_column("ID", Integer, primary_key=True)
+    usuario_id: Mapped[int | None] = mapped_column(
+        "USUARIO_ID", ForeignKey("LLAMADOR_USUARIOS.ID"), nullable=True
+    )
+    nombre_usuario: Mapped[str] = mapped_column("NOMBRE_USUARIO", String(200))
+    rol_usuario: Mapped[str] = mapped_column("ROL_USUARIO", String(20))
+    modulo: Mapped[str] = mapped_column("MODULO", String(30))
+    accion: Mapped[str] = mapped_column("ACCION", String(50))
+    detalles: Mapped[str | None] = mapped_column("DETALLES", String(4000))
+    fecha: Mapped[datetime] = mapped_column("FECHA", DateTime)
+
+
 class Llamada(Base):
     __tablename__ = "LLAMADOR_LLAMADAS"
 

@@ -1,14 +1,16 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
-from app.auth.deps import require_admin
+from app.auth.deps import require_admin, require_admin_panel
 from app.auth.security import hash_password
 from app.database import get_db
 from app.models.entities import Consultorio, Llamada, Medico, Pantalla, Sede, Sala, Usuario
 from app.schemas.common import (
+    AuditoriaListOut,
+    AuditoriaRowOut,
     ConsultorioBase,
     ConsultorioOut,
     DashboardMetrics,
@@ -22,9 +24,12 @@ from app.schemas.common import (
     SalaBase,
     SalaOut,
     UsuarioCreate,
+    UsuarioFiltroOut,
     UsuarioOut,
     UsuarioUpdate,
 )
+from app.services.audit_query import list_auditoria
+from app.services.audit_service import registrar_auditoria
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -78,7 +83,7 @@ def _consultorio_out(row: Consultorio) -> ConsultorioOut:
 
 
 @router.get("/dashboard/metrics", response_model=DashboardMetrics)
-def dashboard_metrics(db: Session = Depends(get_db), _=Depends(require_admin)):
+def dashboard_metrics(db: Session = Depends(get_db), _=Depends(require_admin_panel)):
     now = datetime.utcnow()
     start_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
     start_week = start_day - timedelta(days=start_day.weekday())
@@ -113,14 +118,22 @@ def dashboard_metrics(db: Session = Depends(get_db), _=Depends(require_admin)):
 
 
 @router.get("/sedes", response_model=list[SedeOut])
-def list_sedes(db: Session = Depends(get_db), _=Depends(require_admin)):
-    return db.query(Sede).order_by(Sede.nombre).all()
+def list_sedes(db: Session = Depends(get_db), _=Depends(require_admin_panel)):
+    return db.query(Sede).filter(Sede.activo == 1).order_by(Sede.nombre).all()
 
 
 @router.post("/sedes", response_model=SedeOut, status_code=status.HTTP_201_CREATED)
-def create_sede(body: SedeBase, db: Session = Depends(get_db), _=Depends(require_admin)):
+async def create_sede(
+    body: SedeBase,
+    db: Session = Depends(get_db),
+    actor: Usuario = Depends(require_admin_panel),
+):
     row = Sede(nombre=body.nombre, activo=_bool_to_int(body.activo), fecha_creacion=datetime.utcnow())
     db.add(row)
+    db.flush()
+    await registrar_auditoria(
+        db, actor, "SEDES", "CREAR", f"Se creó la sede «{row.nombre}» (id {row.id})"
+    )
     db.commit()
     db.refresh(row)
     return row
@@ -138,16 +151,39 @@ def update_sede(sede_id: int, body: SedeBase, db: Session = Depends(get_db), _=D
     return row
 
 
+@router.delete("/sedes/{sede_id}", response_model=MessageOut)
+def delete_sede(sede_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    row = db.query(Sede).filter(Sede.id == sede_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Sede no encontrada")
+    sala_hija = (
+        db.query(Sala).filter(Sala.sede_id == sede_id, Sala.activo == 1).first()
+    )
+    if sala_hija:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se puede eliminar la sede porque tiene salas ancladas. Elimine o reasigne las salas primero.",
+        )
+    row.activo = 0
+    db.commit()
+    db.refresh(row)
+    return MessageOut(message="Sede eliminada")
+
+
 @router.get("/salas", response_model=list[SalaOut])
-def list_salas(sede_id: int | None = None, db: Session = Depends(get_db), _=Depends(require_admin)):
-    q = db.query(Sala)
+def list_salas(sede_id: int | None = None, db: Session = Depends(get_db), _=Depends(require_admin_panel)):
+    q = db.query(Sala).filter(Sala.activo == 1)
     if sede_id is not None:
         q = q.filter(Sala.sede_id == sede_id)
     return q.order_by(Sala.nombre).all()
 
 
 @router.post("/salas", response_model=SalaOut, status_code=status.HTTP_201_CREATED)
-def create_sala(body: SalaBase, db: Session = Depends(get_db), _=Depends(require_admin)):
+async def create_sala(
+    body: SalaBase,
+    db: Session = Depends(get_db),
+    actor: Usuario = Depends(require_admin_panel),
+):
     row = Sala(
         sede_id=body.sede_id,
         nombre=body.nombre,
@@ -155,6 +191,10 @@ def create_sala(body: SalaBase, db: Session = Depends(get_db), _=Depends(require
         fecha_creacion=datetime.utcnow(),
     )
     db.add(row)
+    db.flush()
+    await registrar_auditoria(
+        db, actor, "SALAS", "CREAR", f"Se creó la sala «{row.nombre}» (id {row.id})"
+    )
     db.commit()
     db.refresh(row)
     return row
@@ -173,11 +213,30 @@ def update_sala(sala_id: int, body: SalaBase, db: Session = Depends(get_db), _=D
     return row
 
 
+@router.delete("/salas/{sala_id}", response_model=MessageOut)
+def delete_sala(sala_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    row = db.query(Sala).filter(Sala.id == sala_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Sala no encontrada")
+    consultorio_hijo = (
+        db.query(Consultorio).filter(Consultorio.sala_id == sala_id, Consultorio.activo == 1).first()
+    )
+    if consultorio_hijo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se puede eliminar la sala porque tiene consultorios anclados. Elimine los consultorios primero.",
+        )
+    row.activo = 0
+    db.commit()
+    db.refresh(row)
+    return MessageOut(message="Sala eliminada")
+
+
 @router.get("/consultorios", response_model=list[ConsultorioOut])
 def list_consultorios(
-    sala_id: int | None = None, db: Session = Depends(get_db), _=Depends(require_admin)
+    sala_id: int | None = None, db: Session = Depends(get_db), _=Depends(require_admin_panel)
 ):
-    q = _consultorio_query(db)
+    q = _consultorio_query(db).filter(Consultorio.activo == 1)
     if sala_id is not None:
         q = q.filter(Consultorio.sala_id == sala_id)
     rows = q.all()
@@ -192,7 +251,11 @@ def list_consultorios(
 
 
 @router.post("/consultorios", response_model=ConsultorioOut, status_code=status.HTTP_201_CREATED)
-def create_consultorio(body: ConsultorioBase, db: Session = Depends(get_db), _=Depends(require_admin)):
+async def create_consultorio(
+    body: ConsultorioBase,
+    db: Session = Depends(get_db),
+    actor: Usuario = Depends(require_admin_panel),
+):
     row = Consultorio(
         sala_id=body.sala_id,
         numero=body.numero,
@@ -201,6 +264,14 @@ def create_consultorio(body: ConsultorioBase, db: Session = Depends(get_db), _=D
         fecha_creacion=datetime.utcnow(),
     )
     db.add(row)
+    db.flush()
+    await registrar_auditoria(
+        db,
+        actor,
+        "CONSULTORIOS",
+        "CREAR",
+        f"Se creó el consultorio «{row.numero}» (id {row.id})",
+    )
     db.commit()
     loaded = _consultorio_query(db).filter(Consultorio.id == row.id).first()
     assert loaded is not None
@@ -224,13 +295,30 @@ def update_consultorio(
     return _consultorio_out(loaded)
 
 
+@router.delete("/consultorios/{consultorio_id}", response_model=MessageOut)
+def delete_consultorio(
+    consultorio_id: int, db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    row = db.query(Consultorio).filter(Consultorio.id == consultorio_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Consultorio no encontrado")
+    row.activo = 0
+    db.commit()
+    db.refresh(row)
+    return MessageOut(message="Consultorio eliminado")
+
+
 @router.get("/pantallas", response_model=list[PantallaOut])
-def list_pantallas(db: Session = Depends(get_db), _=Depends(require_admin)):
-    return db.query(Pantalla).order_by(Pantalla.nombre).all()
+def list_pantallas(db: Session = Depends(get_db), _=Depends(require_admin_panel)):
+    return db.query(Pantalla).filter(Pantalla.activo == 1).order_by(Pantalla.nombre).all()
 
 
 @router.post("/pantallas", response_model=PantallaOut, status_code=status.HTTP_201_CREATED)
-def create_pantalla(body: PantallaWrite, db: Session = Depends(get_db), _=Depends(require_admin)):
+async def create_pantalla(
+    body: PantallaWrite,
+    db: Session = Depends(get_db),
+    actor: Usuario = Depends(require_admin_panel),
+):
     row = Pantalla(
         sala_id=_sala_id_for_new_pantalla(db),
         nombre=body.nombre,
@@ -239,6 +327,14 @@ def create_pantalla(body: PantallaWrite, db: Session = Depends(get_db), _=Depend
         fecha_creacion=datetime.utcnow(),
     )
     db.add(row)
+    db.flush()
+    await registrar_auditoria(
+        db,
+        actor,
+        "PANTALLAS",
+        "CREAR",
+        f"Se creó la pantalla «{row.nombre}» (código {row.codigo}, id {row.id})",
+    )
     db.commit()
     db.refresh(row)
     return row
@@ -259,15 +355,34 @@ def update_pantalla(
     return row
 
 
+@router.delete("/pantallas/{pantalla_id}", response_model=MessageOut)
+def delete_pantalla(pantalla_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    row = db.query(Pantalla).filter(Pantalla.id == pantalla_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Pantalla no encontrada")
+    row.activo = 0
+    db.commit()
+    db.refresh(row)
+    return MessageOut(message="Pantalla eliminada")
+
+
 @router.get("/medicos", response_model=list[MedicoOut])
-def list_medicos(db: Session = Depends(get_db), _=Depends(require_admin)):
-    return db.query(Medico).order_by(Medico.nombre).all()
+def list_medicos(db: Session = Depends(get_db), _=Depends(require_admin_panel)):
+    return db.query(Medico).filter(Medico.activo == 1).order_by(Medico.nombre).all()
 
 
 @router.post("/medicos", response_model=MedicoOut, status_code=status.HTTP_201_CREATED)
-def create_medico(body: MedicoBase, db: Session = Depends(get_db), _=Depends(require_admin)):
+async def create_medico(
+    body: MedicoBase,
+    db: Session = Depends(get_db),
+    actor: Usuario = Depends(require_admin_panel),
+):
     row = Medico(nombre=body.nombre, activo=_bool_to_int(body.activo), fecha_creacion=datetime.utcnow())
     db.add(row)
+    db.flush()
+    await registrar_auditoria(
+        db, actor, "MEDICOS", "CREAR", f"Se creó el médico «{row.nombre}» (id {row.id})"
+    )
     db.commit()
     db.refresh(row)
     return row
@@ -287,9 +402,20 @@ def update_medico(
     return row
 
 
+@router.delete("/medicos/{medico_id}", response_model=MessageOut)
+def delete_medico(medico_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    row = db.query(Medico).filter(Medico.id == medico_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Médico no encontrado")
+    row.activo = 0
+    db.commit()
+    db.refresh(row)
+    return MessageOut(message="Médico eliminado")
+
+
 @router.get("/usuarios", response_model=list[UsuarioOut])
-def list_usuarios(db: Session = Depends(get_db), _=Depends(require_admin)):
-    users = db.query(Usuario).order_by(Usuario.username).all()
+def list_usuarios(db: Session = Depends(get_db), _=Depends(require_admin_panel)):
+    users = db.query(Usuario).filter(Usuario.activo == 1).order_by(Usuario.username).all()
     return [
         UsuarioOut(
             id=u.id,
@@ -303,11 +429,17 @@ def list_usuarios(db: Session = Depends(get_db), _=Depends(require_admin)):
 
 
 @router.post("/usuarios", response_model=UsuarioOut, status_code=status.HTTP_201_CREATED)
-def create_usuario(body: UsuarioCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
+async def create_usuario(
+    body: UsuarioCreate,
+    db: Session = Depends(get_db),
+    actor: Usuario = Depends(require_admin),
+):
     if body.rol == "MEDICO" and not body.medico_id:
         raise HTTPException(status_code=400, detail="MEDICO requiere medico_id")
     if body.rol == "PANTALLA" and body.medico_id:
         raise HTTPException(status_code=400, detail="PANTALLA no debe tener medico_id")
+    if body.rol in ("ADMIN", "GESTOR", "PANTALLA") and body.medico_id:
+        raise HTTPException(status_code=400, detail="Este rol no debe tener medico_id")
     medico_id = body.medico_id if body.rol == "MEDICO" else None
     row = Usuario(
         username=body.username,
@@ -318,6 +450,14 @@ def create_usuario(body: UsuarioCreate, db: Session = Depends(get_db), _=Depends
         fecha_creacion=datetime.utcnow(),
     )
     db.add(row)
+    db.flush()
+    await registrar_auditoria(
+        db,
+        actor,
+        "USUARIOS",
+        "CREAR",
+        f"Se creó el usuario «{row.username}» con rol {row.rol} (id {row.id})",
+    )
     db.commit()
     db.refresh(row)
     return UsuarioOut(
@@ -349,7 +489,7 @@ def update_usuario(
         row.password_hash = hash_password(body.password)
     if body.rol is not None:
         row.rol = body.rol
-        if body.rol in ("ADMIN", "PANTALLA"):
+        if body.rol in ("ADMIN", "GESTOR", "PANTALLA"):
             row.medico_id = None
     if body.medico_id is not None:
         row.medico_id = body.medico_id
@@ -375,4 +515,84 @@ def delete_usuario(usuario_id: int, db: Session = Depends(get_db), _=Depends(req
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     row.activo = 0
     db.commit()
-    return MessageOut(message="Usuario desactivado")
+    db.refresh(row)
+    return MessageOut(message="Usuario eliminado")
+
+
+@router.get("/usuarios-por-rol", response_model=list[UsuarioFiltroOut])
+def list_usuarios_por_rol(
+    rol: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+    _=Depends(require_admin_panel),
+):
+    allowed = {"ADMIN", "GESTOR", "MEDICO", "PANTALLA"}
+    r = rol.upper()
+    if r not in allowed:
+        raise HTTPException(status_code=400, detail="Rol no válido")
+
+    rows = (
+        db.query(Usuario)
+        .filter(Usuario.rol == r, Usuario.activo == 1)
+        .order_by(Usuario.username)
+        .all()
+    )
+
+    if r == "MEDICO":
+        medico_ids = {u.medico_id for u in rows if u.medico_id}
+        medicos_by_id: dict[int, Medico] = {}
+        if medico_ids:
+            for m in db.query(Medico).filter(Medico.id.in_(medico_ids)).all():
+                medicos_by_id[m.id] = m
+        return [
+            UsuarioFiltroOut(
+                id=u.id,
+                nombre=(
+                    f"{medicos_by_id[u.medico_id].nombre} ({u.username})"
+                    if u.medico_id and u.medico_id in medicos_by_id
+                    else u.username
+                ),
+            )
+            for u in rows
+        ]
+
+    return [UsuarioFiltroOut(id=u.id, nombre=u.username) for u in rows]
+
+
+@router.get("/auditoria", response_model=AuditoriaListOut)
+def get_auditoria(
+    db: Session = Depends(get_db),
+    _=Depends(require_admin_panel),
+    rol: str | None = Query(None, description="ADMIN, GESTOR, MEDICO o PANTALLA"),
+    usuario_id: int | None = Query(None, ge=1),
+    fecha_inicio: date | None = Query(None),
+    fecha_fin: date | None = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(25, ge=1, le=100),
+):
+    if rol:
+        allowed = {"ADMIN", "GESTOR", "MEDICO", "PANTALLA"}
+        r = rol.upper()
+        if r not in allowed:
+            raise HTTPException(status_code=400, detail="Rol de filtro no válido")
+    if usuario_id is not None:
+        exists = db.query(Usuario.id).filter(Usuario.id == usuario_id, Usuario.activo == 1).first()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if fecha_inicio and fecha_fin and fecha_fin < fecha_inicio:
+        raise HTTPException(status_code=400, detail="fecha_fin no puede ser anterior a fecha_inicio")
+
+    result = list_auditoria(
+        db,
+        rol=rol.upper() if rol else None,
+        usuario_id=usuario_id,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+        page=page,
+        limit=limit,
+    )
+    return AuditoriaListOut(
+        data=[AuditoriaRowOut.model_validate(row) for row in result["data"]],
+        total_records=result["total_records"],
+        current_page=result["current_page"],
+        total_pages=result["total_pages"],
+    )

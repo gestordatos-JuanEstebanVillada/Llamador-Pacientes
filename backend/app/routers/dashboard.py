@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.auth.deps import require_admin
+from app.auth.deps import require_admin_panel
 from app.database import get_db
 from app.models.entities import Usuario
 from app.schemas.common import (
@@ -26,7 +26,7 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 @router.get("/summary", response_model=DashboardSummaryOut)
 def dashboard_summary(
     db: Session = Depends(get_db),
-    _: Usuario = Depends(require_admin),
+    _: Usuario = Depends(require_admin_panel),
 ):
     return build_dashboard_summary(db)
 
@@ -37,7 +37,7 @@ def flujo_por_hora(
     sede_id: int | None = Query(None, description="Filtra por sede"),
     sala_id: int | None = Query(None, description="Filtra por sala"),
     db: Session = Depends(get_db),
-    _: Usuario = Depends(require_admin),
+    _: Usuario = Depends(require_admin_panel),
 ):
     day = parse_fecha_param(fecha)
     return {
@@ -52,7 +52,7 @@ def top_medicos(
     sede_id: int | None = Query(None, description="Filtra por sede"),
     sala_id: int | None = Query(None, description="Filtra por sala"),
     db: Session = Depends(get_db),
-    _: Usuario = Depends(require_admin),
+    _: Usuario = Depends(require_admin_panel),
 ):
     day = parse_fecha_param(fecha)
     return {
@@ -68,7 +68,7 @@ def doctor_dashboard(
     page: int = Query(1, ge=1),
     limit: int = Query(15, ge=1, le=100),
     db: Session = Depends(get_db),
-    _: Usuario = Depends(require_admin),
+    _: Usuario = Depends(require_admin_panel),
 ):
     day = parse_fecha_param(fecha)
     detail = build_doctor_day_detail(db, medico_id, day, page=page, limit=limit)
@@ -82,7 +82,7 @@ def produccion_medicos(
     start_date: str | None = Query(None, description="YYYY-MM-DD inicio (Bogotá)"),
     end_date: str | None = Query(None, description="YYYY-MM-DD fin (Bogotá)"),
     db: Session = Depends(get_db),
-    _: Usuario = Depends(require_admin),
+    _: Usuario = Depends(require_admin_panel),
 ):
     start, end = parse_date_range(start_date, end_date)
     return build_produccion_medicos(db, start, end)

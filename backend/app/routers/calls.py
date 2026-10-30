@@ -6,6 +6,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models.entities import Consultorio, Llamada, Sala, Usuario
 from app.schemas.common import CallCreate, CurrentCallOut
+from app.services.audit_service import registrar_auditoria
 from app.services.call_service import call_to_ws_payload, create_patient_call
 from app.websocket.manager import sala_manager
 
@@ -32,6 +33,18 @@ async def create_call(
     )
 
     sala = llamada.consultorio.sala
+    await registrar_auditoria(
+        db,
+        user,
+        "LLAMADOR",
+        "LLAMAR_PACIENTE",
+        (
+            f"Llamó al paciente {llamada.paciente_nombre} "
+            f"al consultorio {llamada.consultorio.numero}"
+        ),
+    )
+    db.commit()
+
     await sala_manager.send_to_sala(sala.id, call_to_ws_payload(llamada))
 
     sede = sala.sede

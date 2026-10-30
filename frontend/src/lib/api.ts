@@ -197,6 +197,9 @@ export const api = {
         body: JSON.stringify(data),
       }),
 
+    deleteSede: (token: string, id: number) =>
+      apiFetch(`/api/admin/sedes/${id}`, { method: "DELETE", headers: authHeaders(token) }),
+
     listSalas: (token: string, sedeId?: number) =>
       apiFetch(
         `/api/admin/salas${sedeId != null ? `?sede_id=${sedeId}` : ""}`,
@@ -216,6 +219,9 @@ export const api = {
         headers: authHeaders(token),
         body: JSON.stringify(data),
       }),
+
+    deleteSala: (token: string, id: number) =>
+      apiFetch(`/api/admin/salas/${id}`, { method: "DELETE", headers: authHeaders(token) }),
 
     listConsultorios: (token: string, salaId?: number) =>
       apiFetch(
@@ -237,6 +243,12 @@ export const api = {
         body: JSON.stringify(data),
       }),
 
+    deleteConsultorio: (token: string, id: number) =>
+      apiFetch(`/api/admin/consultorios/${id}`, {
+        method: "DELETE",
+        headers: authHeaders(token),
+      }),
+
     listPantallas: (token: string) =>
       apiFetch("/api/admin/pantallas", { headers: authHeaders(token) }),
 
@@ -253,6 +265,9 @@ export const api = {
         headers: authHeaders(token),
         body: JSON.stringify(data),
       }),
+
+    deletePantalla: (token: string, id: number) =>
+      apiFetch(`/api/admin/pantallas/${id}`, { method: "DELETE", headers: authHeaders(token) }),
 
     listMedicos: (token: string) =>
       apiFetch("/api/admin/medicos", { headers: authHeaders(token) }),
@@ -271,6 +286,9 @@ export const api = {
         body: JSON.stringify(data),
       }),
 
+    deleteMedico: (token: string, id: number) =>
+      apiFetch(`/api/admin/medicos/${id}`, { method: "DELETE", headers: authHeaders(token) }),
+
     listUsuarios: (token: string) =>
       apiFetch("/api/admin/usuarios", { headers: authHeaders(token) }),
 
@@ -287,5 +305,45 @@ export const api = {
         headers: authHeaders(token),
         body: JSON.stringify(data),
       }),
+
+    deleteUsuario: (token: string, id: number) =>
+      apiFetch(`/api/admin/usuarios/${id}`, { method: "DELETE", headers: authHeaders(token) }),
+
+    listUsuariosPorRol: (token: string, rol: string) =>
+      apiFetch<import("../types").UsuarioFiltroOption[]>(
+        `/api/admin/usuarios-por-rol?rol=${encodeURIComponent(rol)}`,
+        { headers: authHeaders(token) },
+      ),
+
+    listAuditoria: (
+      token: string,
+      params?: {
+        rol?: string;
+        usuarioId?: number;
+        fechaInicio?: string;
+        fechaFin?: string;
+        page?: number;
+        limit?: number;
+      },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.rol) qs.set("rol", params.rol);
+      if (params?.usuarioId != null) qs.set("usuario_id", String(params.usuarioId));
+      if (params?.fechaInicio) qs.set("fecha_inicio", params.fechaInicio);
+      if (params?.fechaFin) qs.set("fecha_fin", params.fechaFin);
+      if (params?.page != null) qs.set("page", String(params.page));
+      if (params?.limit != null) qs.set("limit", String(params.limit));
+      const q = qs.toString();
+      return apiFetch<import("../types").AuditoriaList>(
+        `/api/admin/auditoria${q ? `?${q}` : ""}`,
+        { headers: authHeaders(token) },
+      );
+    },
   },
+
+  logout: (token: string) =>
+    apiFetch<{ message: string }>("/api/auth/logout", {
+      method: "POST",
+      headers: authHeaders(token),
+    }),
 };

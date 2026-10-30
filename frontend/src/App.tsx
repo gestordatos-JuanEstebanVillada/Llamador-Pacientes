@@ -1,3 +1,4 @@
+import { Toaster } from "react-hot-toast";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { RequireAuth } from "./components/RequireAuth";
@@ -12,6 +13,7 @@ import PantallaViewPage from "./pages/pantalla/PantallaViewPage";
 export default function App() {
   return (
     <AuthProvider>
+      <Toaster position="top-center" reverseOrder={false} />
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginPage />} />
@@ -19,7 +21,7 @@ export default function App() {
         <Route
           path="/admin/*"
           element={
-            <RequireAuth roles={["ADMIN"]}>
+            <RequireAuth roles={["ADMIN", "GESTOR"]}>
               <AdminPage />
             </RequireAuth>
           }

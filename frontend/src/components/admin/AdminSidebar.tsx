@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Layers,
   LayoutDashboard,
+  ClipboardList,
   LogOut,
   Monitor,
   Stethoscope,
@@ -22,7 +23,8 @@ export type AdminTab =
   | "consultorios"
   | "pantallas"
   | "medicos"
-  | "usuarios";
+  | "usuarios"
+  | "auditoria";
 
 type NavItem = {
   id: AdminTab;
@@ -57,6 +59,16 @@ const NAV_CATEGORIES: NavCategory[] = [
     items: [
       { id: "medicos", label: "Médicos", icon: <UserRound className="h-5 w-5 shrink-0" /> },
       { id: "usuarios", label: "Usuarios", icon: <Users className="h-5 w-5 shrink-0" /> },
+    ],
+  },
+  {
+    title: "Reportes",
+    items: [
+      {
+        id: "auditoria",
+        label: "Auditoría",
+        icon: <ClipboardList className="h-5 w-5 shrink-0" />,
+      },
     ],
   },
 ];

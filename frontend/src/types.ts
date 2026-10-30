@@ -1,4 +1,27 @@
-export type Rol = "ADMIN" | "MEDICO" | "PANTALLA";
+export type Rol = "ADMIN" | "GESTOR" | "MEDICO" | "PANTALLA";
+
+export interface AuditoriaRow {
+  id: number;
+  usuario_id: number | null;
+  nombre_usuario: string;
+  rol_usuario: string;
+  modulo: string;
+  accion: string;
+  detalles: string | null;
+  fecha: string;
+}
+
+export interface AuditoriaList {
+  data: AuditoriaRow[];
+  total_records: number;
+  current_page: number;
+  total_pages: number;
+}
+
+export interface UsuarioFiltroOption {
+  id: number;
+  nombre: string;
+}
 
 export interface TokenResponse {
   access_token: string;

@@ -1,7 +1,9 @@
 import { FormEvent, useCallback, useEffect, useState, type ReactNode } from "react";
-import { Plus, Pencil } from "lucide-react";
+import { Building, MapPin, Pencil, Plus, Trash } from "lucide-react";
+import toast from "react-hot-toast";
 import { Navigate } from "react-router-dom";
 
+import { AdminAuditoria } from "../components/admin/AdminAuditoria";
 import { AdminDashboard } from "../components/admin/AdminDashboard";
 import { AdminSidebar, type AdminTab } from "../components/admin/AdminSidebar";
 import { Modal } from "../components/admin/Modal";
@@ -59,9 +61,11 @@ export default function AdminPage() {
   if (!isAuthenticated || !token) {
     return <Navigate to="/login" replace />;
   }
-  if (rol !== "ADMIN") {
+  if (rol !== "ADMIN" && rol !== "GESTOR") {
     return <Navigate to="/medico/setup" replace />;
   }
+
+  const isAdmin = rol === "ADMIN";
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-slate-50 text-slate-800">
@@ -74,9 +78,11 @@ export default function AdminPage() {
           <AdminDashboard token={token} medicos={medicos} sedes={sedes} salas={salas} />
         )}
 
-        {tab === "sedes" && <CrudSedes token={token} sedes={sedes} onSaved={reload} />}
+        {tab === "sedes" && (
+          <CrudSedes token={token} sedes={sedes} onSaved={reload} canEditDelete={isAdmin} />
+        )}
         {tab === "salas" && (
-          <CrudSalas token={token} sedes={sedes} salas={salas} onSaved={reload} />
+          <CrudSalas token={token} sedes={sedes} salas={salas} onSaved={reload} canEditDelete={isAdmin} />
         )}
         {tab === "consultorios" && (
           <CrudConsultorios
@@ -85,25 +91,44 @@ export default function AdminPage() {
             salas={salas}
             consultorios={consultorios}
             onSaved={reload}
+            canEditDelete={isAdmin}
           />
         )}
         {tab === "pantallas" && (
-          <CrudPantallas token={token} pantallas={pantallas} onSaved={reload} />
+          <CrudPantallas token={token} pantallas={pantallas} onSaved={reload} canEditDelete={isAdmin} />
         )}
-        {tab === "medicos" && <CrudMedicos token={token} medicos={medicos} onSaved={reload} />}
+        {tab === "medicos" && (
+          <CrudMedicos token={token} medicos={medicos} onSaved={reload} canEditDelete={isAdmin} />
+        )}
         {tab === "usuarios" && (
-          <CrudUsuarios token={token} medicos={medicos} usuarios={usuarios} onSaved={reload} />
+          <CrudUsuarios
+            token={token}
+            medicos={medicos}
+            usuarios={usuarios}
+            onSaved={reload}
+            canEditDelete={isAdmin}
+            canCreateUser={isAdmin}
+          />
         )}
+        {tab === "auditoria" && token && <AdminAuditoria token={token} />}
       </main>
     </div>
   );
 }
 
-function CrudSection({ title, description, onNew, newLabel, children }: {
+function CrudSection({
+  title,
+  description,
+  onNew,
+  newLabel,
+  showNew = true,
+  children,
+}: {
   title: string;
   description?: string;
   onNew: () => void;
   newLabel: string;
+  showNew?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -113,18 +138,30 @@ function CrudSection({ title, description, onNew, newLabel, children }: {
           <h2 className="text-2xl font-semibold text-slate-800">{title}</h2>
           {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
         </div>
-        <button
-          type="button"
-          onClick={onNew}
-          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-rose-700 transition-colors shadow-sm"
-        >
-          <Plus className="h-4 w-4" aria-hidden />
-          {newLabel}
-        </button>
+        {showNew && (
+          <button
+            type="button"
+            onClick={onNew}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-rose-700 transition-colors shadow-sm"
+          >
+            <Plus className="h-4 w-4" aria-hidden />
+            {newLabel}
+          </button>
+        )}
       </div>
       {children}
     </div>
   );
+}
+
+const DELETE_CONFIRM = "¿Estás seguro de que deseas eliminar este registro?";
+
+function toastDeleteError(err: unknown) {
+  const message =
+    err instanceof Error && err.message
+      ? err.message
+      : "Error al intentar eliminar el registro";
+  toast.error(message);
 }
 
 function EditRowButton({ onClick }: { onClick: () => void }) {
@@ -140,6 +177,82 @@ function EditRowButton({ onClick }: { onClick: () => void }) {
   );
 }
 
+function DeleteRowButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 transition-colors"
+      aria-label="Eliminar"
+    >
+      <Trash className="h-3.5 w-3.5" aria-hidden />
+      Eliminar
+    </button>
+  );
+}
+
+function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <EditRowButton onClick={onEdit} />
+      <DeleteRowButton onClick={onDelete} />
+    </div>
+  );
+}
+
+function actionsHeader(canEditDelete: boolean) {
+  return canEditDelete ? (["Acciones"] as const) : ([] as const);
+}
+
+function actionsCell(
+  canEditDelete: boolean,
+  key: string,
+  onEdit: () => void,
+  onDelete: () => void,
+): ReactNode[] {
+  return canEditDelete
+    ? [<RowActions key={key} onEdit={onEdit} onDelete={() => void onDelete()} />]
+    : [];
+}
+
+function groupSalasBySede(salas: Sala[], sedes: Sede[]) {
+  return [...sedes]
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
+    .map((sede) => ({
+      sede,
+      salas: salas
+        .filter((s) => s.sede_id === sede.id)
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
+    }))
+    .filter((g) => g.salas.length > 0);
+}
+
+function groupConsultoriosBySedeAndSala(consultorios: Consultorio[]) {
+  const bySede = consultorios.reduce<Record<string, Consultorio[]>>((acc, c) => {
+    const key = String(c.sede_id ?? c.sede_nombre ?? "sin-sede");
+    (acc[key] ??= []).push(c);
+    return acc;
+  }, {});
+
+  return Object.values(bySede)
+    .map((items) => {
+      const sedeName = items[0]?.sede_nombre ?? "Sin sede";
+      const bySala = items.reduce<Record<number, Consultorio[]>>((acc, c) => {
+        (acc[c.sala_id] ??= []).push(c);
+        return acc;
+      }, {});
+      const salas = Object.entries(bySala)
+        .map(([salaId, list]) => ({
+          salaId: Number(salaId),
+          salaName: list[0]?.sala_nombre ?? `Sala ${salaId}`,
+          consultorios: [...list].sort((a, b) => a.numero.localeCompare(b.numero, "es")),
+        }))
+        .sort((a, b) => a.salaName.localeCompare(b.salaName, "es"));
+      return { sedeName, salas };
+    })
+    .sort((a, b) => a.sedeName.localeCompare(b.sedeName, "es"));
+}
+
 function FieldLabel({ children }: { children: ReactNode }) {
   return <label className="block text-sm text-slate-700 space-y-1">{children}</label>;
 }
@@ -152,10 +265,12 @@ function CrudSedes({
   token,
   sedes,
   onSaved,
+  canEditDelete,
 }: {
   token: string;
   sedes: Sede[];
-  onSaved: () => void;
+  onSaved: () => void | Promise<void>;
+  canEditDelete: boolean;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [nombre, setNombre] = useState("");
@@ -172,10 +287,15 @@ function CrudSedes({
 
   const onCreate = async (e: FormEvent) => {
     e.preventDefault();
-    await api.admin.createSede(token, { nombre, activo: true });
-    setNombre("");
-    setCreateOpen(false);
-    onSaved();
+    try {
+      await api.admin.createSede(token, { nombre, activo: true });
+      setNombre("");
+      setCreateOpen(false);
+      toast.success("Sede creada correctamente");
+      onSaved();
+    } catch {
+      toast.error("Ocurrió un error al procesar la solicitud");
+    }
   };
 
   const openEdit = (s: Sede) => {
@@ -193,23 +313,36 @@ function CrudSedes({
     try {
       await api.admin.updateSede(token, edit.id, { nombre: editNombre, activo: editActivo });
       setEdit(null);
+      toast.success("Sede actualizada correctamente");
       onSaved();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Error al guardar");
+      toast.error("Ocurrió un error al procesar la solicitud");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const onDelete = async (id: number) => {
+    if (!window.confirm(DELETE_CONFIRM)) return;
+    try {
+      await api.admin.deleteSede(token, id);
+      toast.success("Sede eliminada");
+      await onSaved();
+    } catch (err) {
+      toastDeleteError(err);
     }
   };
 
   return (
     <CrudSection title="Sedes" description="Administre las sedes de la institución." onNew={openCreate} newLabel="Nueva sede">
       <EntityTable
-        headers={["ID", "Nombre", "Activo", ""]}
+        headers={["ID", "Nombre", "Activo", ...actionsHeader(canEditDelete)]}
         rows={sedes.map((s) => [
           s.id,
           s.nombre,
           s.activo ? "Sí" : "No",
-          <EditRowButton key={`edit-${s.id}`} onClick={() => openEdit(s)} />,
+          ...actionsCell(canEditDelete, `actions-${s.id}`, () => openEdit(s), () => onDelete(s.id)),
         ])}
       />
       <Modal
@@ -258,11 +391,13 @@ function CrudSalas({
   sedes,
   salas,
   onSaved,
+  canEditDelete,
 }: {
   token: string;
   sedes: Sede[];
   salas: Sala[];
   onSaved: () => void;
+  canEditDelete: boolean;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [sedeId, setSedeId] = useState<number | "">("");
@@ -283,10 +418,15 @@ function CrudSalas({
   const onCreate = async (e: FormEvent) => {
     e.preventDefault();
     if (sedeId === "") return;
-    await api.admin.createSala(token, { sede_id: sedeId, nombre, activo: true });
-    setNombre("");
-    setCreateOpen(false);
-    onSaved();
+    try {
+      await api.admin.createSala(token, { sede_id: sedeId, nombre, activo: true });
+      setNombre("");
+      setCreateOpen(false);
+      toast.success("Sala creada correctamente");
+      onSaved();
+    } catch {
+      toast.error("Ocurrió un error al procesar la solicitud");
+    }
   };
 
   const openEdit = (s: Sala) => {
@@ -308,26 +448,54 @@ function CrudSalas({
         activo: editActivo,
       });
       setEdit(null);
+      toast.success("Sala actualizada correctamente");
       onSaved();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Error al guardar");
+      toast.error("Ocurrió un error al procesar la solicitud");
     } finally {
       setSaving(false);
     }
   };
 
+  const onDelete = async (id: number) => {
+    if (!window.confirm(DELETE_CONFIRM)) return;
+    try {
+      await api.admin.deleteSala(token, id);
+      toast.success("Sala eliminada");
+      await onSaved();
+    } catch (err) {
+      toastDeleteError(err);
+    }
+  };
+
+  const salasGrouped = groupSalasBySede(salas, sedes);
+
   return (
     <CrudSection title="Salas" description="Salas de atención asociadas a cada sede." onNew={openCreate} newLabel="Nueva sala">
-      <EntityTable
-        headers={["ID", "Sede", "Nombre", "Activo", ""]}
-        rows={salas.map((s) => [
-          s.id,
-          sedes.find((x) => x.id === s.sede_id)?.nombre ?? s.sede_id,
-          s.nombre,
-          s.activo ? "Sí" : "No",
-          <EditRowButton key={`edit-${s.id}`} onClick={() => openEdit(s)} />,
-        ])}
-      />
+      {salasGrouped.length === 0 ? (
+        <p className="text-sm text-slate-500">No hay salas registradas.</p>
+      ) : (
+        <div className="space-y-8">
+          {salasGrouped.map(({ sede, salas: groupSalas }) => (
+            <section key={sede.id}>
+              <h3 className="mb-4 flex items-center border-b border-gray-200 pb-2 text-lg font-semibold text-slate-800">
+                <Building className="mr-2 h-5 w-5 shrink-0 text-rose-600" aria-hidden />
+                {sede.nombre}
+              </h3>
+              <EntityTable
+                headers={["ID", "Nombre", "Activo", ...actionsHeader(canEditDelete)]}
+                rows={groupSalas.map((s) => [
+                  s.id,
+                  s.nombre,
+                  s.activo ? "Sí" : "No",
+                  ...actionsCell(canEditDelete, `actions-${s.id}`, () => openEdit(s), () => onDelete(s.id)),
+                ])}
+              />
+            </section>
+          ))}
+        </div>
+      )}
       <Modal
         open={createOpen}
         title="Nueva sala"
@@ -395,12 +563,14 @@ function CrudConsultorios({
   salas,
   consultorios,
   onSaved,
+  canEditDelete,
 }: {
   token: string;
   sedes: Sede[];
   salas: Sala[];
   consultorios: Consultorio[];
   onSaved: () => void;
+  canEditDelete: boolean;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [sedeId, setSedeId] = useState<number | "">("");
@@ -443,16 +613,21 @@ function CrudConsultorios({
   const onCreate = async (e: FormEvent) => {
     e.preventDefault();
     if (salaId === "") return;
-    await api.admin.createConsultorio(token, {
-      sala_id: salaId,
-      numero,
-      descripcion: descripcion || null,
-      activo: true,
-    });
-    setNumero("");
-    setDescripcion("");
-    setCreateOpen(false);
-    onSaved();
+    try {
+      await api.admin.createConsultorio(token, {
+        sala_id: salaId,
+        numero,
+        descripcion: descripcion || null,
+        activo: true,
+      });
+      setNumero("");
+      setDescripcion("");
+      setCreateOpen(false);
+      toast.success("Consultorio creado correctamente");
+      onSaved();
+    } catch {
+      toast.error("Ocurrió un error al procesar la solicitud");
+    }
   };
 
   const openEdit = (c: Consultorio) => {
@@ -478,13 +653,28 @@ function CrudConsultorios({
         activo: editActivo,
       });
       setEdit(null);
+      toast.success("Consultorio actualizado correctamente");
       onSaved();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Error al guardar");
+      toast.error("Ocurrió un error al procesar la solicitud");
     } finally {
       setSaving(false);
     }
   };
+
+  const onDelete = async (id: number) => {
+    if (!window.confirm(DELETE_CONFIRM)) return;
+    try {
+      await api.admin.deleteConsultorio(token, id);
+      toast.success("Consultorio eliminado");
+      await onSaved();
+    } catch {
+      toast.error("Ocurrió un error al procesar la solicitud");
+    }
+  };
+
+  const consultoriosGrouped = groupConsultoriosBySedeAndSala(consultorios);
 
   return (
     <CrudSection
@@ -493,20 +683,40 @@ function CrudConsultorios({
       onNew={openCreate}
       newLabel="Nuevo consultorio"
     >
-      <EntityTable
-        headers={["ID", "Sede", "Sala", "Número", "Descripción", "Activo", ""]}
-        rows={consultorios.map((c) => [
-          c.id,
-          c.sede_nombre ??
-            sedes.find((x) => x.id === salas.find((s) => s.id === c.sala_id)?.sede_id)?.nombre ??
-            "-",
-          c.sala_nombre ?? salas.find((x) => x.id === c.sala_id)?.nombre ?? c.sala_id,
-          c.numero,
-          c.descripcion ?? "-",
-          c.activo ? "Sí" : "No",
-          <EditRowButton key={`edit-${c.id}`} onClick={() => openEdit(c)} />,
-        ])}
-      />
+      {consultoriosGrouped.length === 0 ? (
+        <p className="text-sm text-slate-500">No hay consultorios registrados.</p>
+      ) : (
+        <div className="space-y-10">
+          {consultoriosGrouped.map((sedeGroup) => (
+            <section key={sedeGroup.sedeName}>
+              <h3 className="mb-4 flex items-center border-b border-gray-200 pb-2 text-lg font-bold text-slate-700">
+                <Building className="mr-2 h-5 w-5 shrink-0 text-slate-500" aria-hidden />
+                {sedeGroup.sedeName}
+              </h3>
+              <div className="space-y-6 pl-2 md:pl-4">
+                {sedeGroup.salas.map((salaGroup) => (
+                  <div key={salaGroup.salaId}>
+                    <h4 className="mb-2 flex items-center text-base font-bold text-slate-700">
+                      <MapPin className="mr-2 h-4 w-4 shrink-0 text-rose-500" aria-hidden />
+                      {salaGroup.salaName}
+                    </h4>
+                    <EntityTable
+                      headers={["ID", "Número", "Descripción", "Activo", ...actionsHeader(canEditDelete)]}
+                      rows={salaGroup.consultorios.map((c) => [
+                        c.id,
+                        c.numero,
+                        c.descripcion ?? "-",
+                        c.activo ? "Sí" : "No",
+                        ...actionsCell(canEditDelete, `actions-${c.id}`, () => openEdit(c), () => onDelete(c.id)),
+                      ])}
+                    />
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
       <Modal
         open={createOpen}
         title="Nuevo consultorio"
@@ -614,10 +824,12 @@ function CrudPantallas({
   token,
   pantallas,
   onSaved,
+  canEditDelete,
 }: {
   token: string;
   pantallas: Pantalla[];
   onSaved: () => void;
+  canEditDelete: boolean;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [nombre, setNombre] = useState("");
@@ -637,11 +849,16 @@ function CrudPantallas({
 
   const onCreate = async (e: FormEvent) => {
     e.preventDefault();
-    await api.admin.createPantalla(token, { nombre, codigo, activo: true });
-    setNombre("");
-    setCodigo("");
-    setCreateOpen(false);
-    onSaved();
+    try {
+      await api.admin.createPantalla(token, { nombre, codigo, activo: true });
+      setNombre("");
+      setCodigo("");
+      setCreateOpen(false);
+      toast.success("Pantalla creada correctamente");
+      onSaved();
+    } catch {
+      toast.error("Ocurrió un error al procesar la solicitud");
+    }
   };
 
   const openEdit = (p: Pantalla) => {
@@ -663,11 +880,24 @@ function CrudPantallas({
         activo: editActivo,
       });
       setEdit(null);
+      toast.success("Pantalla actualizada correctamente");
       onSaved();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Error al guardar");
+      toast.error("Ocurrió un error al procesar la solicitud");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const onDelete = async (id: number) => {
+    if (!window.confirm(DELETE_CONFIRM)) return;
+    try {
+      await api.admin.deletePantalla(token, id);
+      toast.success("Pantalla eliminada");
+      await onSaved();
+    } catch {
+      toast.error("Ocurrió un error al procesar la solicitud");
     }
   };
 
@@ -679,13 +909,13 @@ function CrudPantallas({
       newLabel="Nueva pantalla"
     >
       <EntityTable
-        headers={["ID", "Nombre", "Código / URL", "Activo", ""]}
+        headers={["ID", "Nombre", "Código / URL", "Activo", ...actionsHeader(canEditDelete)]}
         rows={pantallas.map((p) => [
           p.id,
           p.nombre,
           p.codigo,
           p.activo ? "Sí" : "No",
-          <EditRowButton key={`edit-${p.id}`} onClick={() => openEdit(p)} />,
+          ...actionsCell(canEditDelete, `actions-${p.id}`, () => openEdit(p), () => onDelete(p.id)),
         ])}
       />
       <Modal
@@ -724,10 +954,12 @@ function CrudMedicos({
   token,
   medicos,
   onSaved,
+  canEditDelete,
 }: {
   token: string;
   medicos: Medico[];
   onSaved: () => void;
+  canEditDelete: boolean;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [nombre, setNombre] = useState("");
@@ -744,10 +976,15 @@ function CrudMedicos({
 
   const onCreate = async (e: FormEvent) => {
     e.preventDefault();
-    await api.admin.createMedico(token, { nombre, activo: true });
-    setNombre("");
-    setCreateOpen(false);
-    onSaved();
+    try {
+      await api.admin.createMedico(token, { nombre, activo: true });
+      setNombre("");
+      setCreateOpen(false);
+      toast.success("Médico creado correctamente");
+      onSaved();
+    } catch {
+      toast.error("Ocurrió un error al procesar la solicitud");
+    }
   };
 
   const openEdit = (m: Medico) => {
@@ -764,23 +1001,36 @@ function CrudMedicos({
     try {
       await api.admin.updateMedico(token, edit.id, { nombre: editNombre, activo: editActivo });
       setEdit(null);
+      toast.success("Médico actualizado correctamente");
       onSaved();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Error al guardar");
+      toast.error("Ocurrió un error al procesar la solicitud");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const onDelete = async (id: number) => {
+    if (!window.confirm(DELETE_CONFIRM)) return;
+    try {
+      await api.admin.deleteMedico(token, id);
+      toast.success("Médico eliminado");
+      await onSaved();
+    } catch {
+      toast.error("Ocurrió un error al procesar la solicitud");
     }
   };
 
   return (
     <CrudSection title="Médicos" description="Profesionales que pueden llamar pacientes." onNew={openCreate} newLabel="Nuevo médico">
       <EntityTable
-        headers={["ID", "Nombre", "Activo", ""]}
+        headers={["ID", "Nombre", "Activo", ...actionsHeader(canEditDelete)]}
         rows={medicos.map((m) => [
           m.id,
           m.nombre,
           m.activo ? "Sí" : "No",
-          <EditRowButton key={`edit-${m.id}`} onClick={() => openEdit(m)} />,
+          ...actionsCell(canEditDelete, `actions-${m.id}`, () => openEdit(m), () => onDelete(m.id)),
         ])}
       />
       <Modal
@@ -813,28 +1063,34 @@ function CrudMedicos({
   );
 }
 
+type UsuarioRol = "ADMIN" | "GESTOR" | "MEDICO" | "PANTALLA";
+
 function CrudUsuarios({
   token,
   medicos,
   usuarios,
   onSaved,
+  canEditDelete,
+  canCreateUser,
 }: {
   token: string;
   medicos: Medico[];
   usuarios: Usuario[];
   onSaved: () => void;
+  canEditDelete: boolean;
+  canCreateUser: boolean;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [rol, setRol] = useState<"ADMIN" | "MEDICO" | "PANTALLA">("MEDICO");
+  const [rol, setRol] = useState<UsuarioRol>("MEDICO");
   const [medicoId, setMedicoId] = useState<number | "">("");
   const [createError, setCreateError] = useState<string | null>(null);
 
   const [edit, setEdit] = useState<Usuario | null>(null);
   const [editUsername, setEditUsername] = useState("");
   const [editPassword, setEditPassword] = useState("");
-  const [editRol, setEditRol] = useState<"ADMIN" | "MEDICO" | "PANTALLA">("MEDICO");
+  const [editRol, setEditRol] = useState<UsuarioRol>("MEDICO");
   const [editMedicoId, setEditMedicoId] = useState<number | "">("");
   const [editActivo, setEditActivo] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -868,9 +1124,11 @@ function CrudUsuarios({
       setPassword("");
       setMedicoId("");
       setCreateOpen(false);
+      toast.success("Usuario creado correctamente");
       onSaved();
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Error al crear usuario");
+      toast.error("Ocurrió un error al procesar la solicitud");
     }
   };
 
@@ -905,25 +1163,44 @@ function CrudUsuarios({
       }
       await api.admin.updateUsuario(token, edit.id, payload);
       setEdit(null);
+      toast.success("Usuario actualizado correctamente");
       onSaved();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Error al guardar");
+      toast.error("Ocurrió un error al procesar la solicitud");
     } finally {
       setSaving(false);
     }
   };
 
+  const onDelete = async (id: number) => {
+    if (!window.confirm(DELETE_CONFIRM)) return;
+    try {
+      await api.admin.deleteUsuario(token, id);
+      toast.success("Usuario eliminado");
+      await onSaved();
+    } catch {
+      toast.error("Ocurrió un error al procesar la solicitud");
+    }
+  };
+
   return (
-    <CrudSection title="Usuarios" description="Cuentas de acceso al sistema." onNew={openCreate} newLabel="Nuevo usuario">
+    <CrudSection
+      title="Usuarios"
+      description="Cuentas de acceso al sistema."
+      onNew={openCreate}
+      newLabel="Nuevo usuario"
+      showNew={canCreateUser}
+    >
       <EntityTable
-        headers={["ID", "Usuario", "Rol", "Médico", "Activo", ""]}
+        headers={["ID", "Usuario", "Rol", "Médico", "Activo", ...actionsHeader(canEditDelete)]}
         rows={usuarios.map((u) => [
           u.id,
           u.username,
           u.rol,
           medicos.find((m) => m.id === u.medico_id)?.nombre ?? "-",
           u.activo ? "Sí" : "No",
-          <EditRowButton key={`edit-${u.id}`} onClick={() => openEdit(u)} />,
+          ...actionsCell(canEditDelete, `actions-${u.id}`, () => openEdit(u), () => onDelete(u.id)),
         ])}
       />
       <Modal
@@ -954,10 +1231,11 @@ function CrudUsuarios({
           <select
             className={inputClass()}
             value={rol}
-            onChange={(e) => setRol(e.target.value as "ADMIN" | "MEDICO" | "PANTALLA")}
+            onChange={(e) => setRol(e.target.value as UsuarioRol)}
           >
             <option value="MEDICO">MEDICO</option>
             <option value="PANTALLA">PANTALLA</option>
+            <option value="GESTOR">GESTOR</option>
             <option value="ADMIN">ADMIN</option>
           </select>
         </FieldLabel>
@@ -990,10 +1268,11 @@ function CrudUsuarios({
           <select
             className={inputClass()}
             value={editRol}
-            onChange={(e) => setEditRol(e.target.value as "ADMIN" | "MEDICO" | "PANTALLA")}
+            onChange={(e) => setEditRol(e.target.value as UsuarioRol)}
           >
             <option value="MEDICO">MEDICO</option>
             <option value="PANTALLA">PANTALLA</option>
+            <option value="GESTOR">Gestor</option>
             <option value="ADMIN">ADMIN</option>
           </select>
         </FieldLabel>

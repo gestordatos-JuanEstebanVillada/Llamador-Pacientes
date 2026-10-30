@@ -63,6 +63,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     const rolActual = state.rol;
+    const tokenActual = state.token;
+    if (tokenActual) {
+      void api.logout(tokenActual).catch(() => {
+        /* auditoría best-effort */
+      });
+    }
     clearAuth();
     if (rolActual === "MEDICO") {
       clearMedicoConfig();
@@ -71,7 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearPantallaConfig();
     }
     setState({ token: null, username: null, rol: null, medicoId: null });
-  }, [state.rol]);
+  }, [state.rol, state.token]);
 
   const value = useMemo(
     () => ({

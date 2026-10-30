@@ -93,7 +93,7 @@ class MedicoOut(MedicoBase):
 class UsuarioCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=100)
     password: str = Field(..., min_length=6, max_length=128)
-    rol: str = Field(..., pattern="^(ADMIN|MEDICO|PANTALLA)$")
+    rol: str = Field(..., pattern="^(ADMIN|GESTOR|MEDICO|PANTALLA)$")
     medico_id: int | None = None
     activo: bool = True
 
@@ -101,7 +101,7 @@ class UsuarioCreate(BaseModel):
 class UsuarioUpdate(BaseModel):
     username: str | None = Field(None, min_length=3, max_length=100)
     password: str | None = Field(None, min_length=6, max_length=128)
-    rol: str | None = Field(None, pattern="^(ADMIN|MEDICO|PANTALLA)$")
+    rol: str | None = Field(None, pattern="^(ADMIN|GESTOR|MEDICO|PANTALLA)$")
     medico_id: int | None = None
     activo: bool | None = None
 
@@ -229,3 +229,28 @@ class ProduccionDashboardOut(BaseModel):
     end_date: date
     dias_en_rango: int
     medicos: list[MedicoProduccionRowOut]
+
+
+class AuditoriaRowOut(BaseModel):
+    id: int
+    usuario_id: int | None
+    nombre_usuario: str
+    rol_usuario: str
+    modulo: str
+    accion: str
+    detalles: str | None
+    fecha: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AuditoriaListOut(BaseModel):
+    data: list[AuditoriaRowOut]
+    total_records: int
+    current_page: int
+    total_pages: int
+
+
+class UsuarioFiltroOut(BaseModel):
+    id: int
+    nombre: str
