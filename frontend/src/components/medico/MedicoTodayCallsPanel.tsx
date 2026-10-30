@@ -15,7 +15,7 @@ export function MedicoTodayCallsPanel({
   /** Incrementar tras una nueva llamada para recargar la lista. */
   refreshKey?: number;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [data, setData] = useState<MedicoCallsToday | null>(null);
   const [loading, setLoading] = useState(true);
