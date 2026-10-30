@@ -54,22 +54,28 @@ class ConsultorioBase(BaseModel):
 class ConsultorioOut(ConsultorioBase):
     id: int
     fecha_creacion: datetime | None = None
+    sala_nombre: str = ""
+    sede_id: int | None = None
+    sede_nombre: str = ""
 
     model_config = {"from_attributes": True}
 
 
-class PantallaBase(BaseModel):
-    sala_id: int
+class PantallaWrite(BaseModel):
     nombre: str = Field(..., min_length=1, max_length=200)
     codigo: str = Field(..., min_length=1, max_length=100)
     activo: ActiveBool = True
 
 
-class PantallaOut(PantallaBase):
+class PantallaOut(PantallaWrite):
     id: int
     fecha_creacion: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+
+# Alias retrocompatible (admin ya no envía sala_id)
+PantallaBase = PantallaWrite
 
 
 class MedicoBase(BaseModel):

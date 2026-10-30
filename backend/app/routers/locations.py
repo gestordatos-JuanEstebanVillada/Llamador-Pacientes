@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.auth.deps import require_location_reader, require_medico
 from app.database import get_db
@@ -42,6 +42,7 @@ def list_salas(sede_id: int, db: Session = Depends(get_db), _=Depends(require_lo
 def list_consultorios(sala_id: int, db: Session = Depends(get_db), _=Depends(require_medico)):
     rows = (
         db.query(Consultorio)
+        .options(joinedload(Consultorio.sala).joinedload(Sala.sede))
         .filter(Consultorio.sala_id == sala_id, Consultorio.activo == 1)
         .order_by(Consultorio.numero)
         .all()
@@ -54,6 +55,9 @@ def list_consultorios(sala_id: int, db: Session = Depends(get_db), _=Depends(req
             descripcion=r.descripcion,
             activo=bool(r.activo),
             fecha_creacion=r.fecha_creacion,
+            sala_nombre=r.sala.nombre if r.sala else "",
+            sede_id=r.sala.sede.id if r.sala and r.sala.sede else None,
+            sede_nombre=r.sala.sede.nombre if r.sala and r.sala.sede else "",
         )
         for r in rows
     ]

@@ -111,10 +111,17 @@ def resolve_pantalla_for_consultorio(db: Session, consultorio_id: int) -> tuple[
     sala = consultorio.sala
     if not sala or sala.activo != 1:
         raise ValueError("Sala inactiva")
-    pantalla = sala.pantalla
+    pantalla = sala.pantalla if sala else None
     if not pantalla or pantalla.activo != 1:
+        pantalla = (
+            db.query(Pantalla)
+            .filter(Pantalla.activo == 1)
+            .order_by(Pantalla.id)
+            .first()
+        )
+    if not pantalla:
         raise ValueError(
-            "No hay pantalla registrada para esta sala. Configure una en el panel admin."
+            "No hay pantalla activa registrada. Registre al menos una pantalla en el panel admin."
         )
     return pantalla, consultorio
 

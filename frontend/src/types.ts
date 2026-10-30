@@ -38,11 +38,13 @@ export interface Consultorio {
   numero: string;
   descripcion?: string | null;
   activo: boolean;
+  sala_nombre?: string;
+  sede_id?: number | null;
+  sede_nombre?: string;
 }
 
 export interface Pantalla {
   id: number;
-  sala_id: number;
   nombre: string;
   codigo: string;
   activo: boolean;

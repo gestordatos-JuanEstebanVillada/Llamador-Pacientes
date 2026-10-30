@@ -79,10 +79,16 @@ export default function AdminPage() {
           <CrudSalas token={token} sedes={sedes} salas={salas} onSaved={reload} />
         )}
         {tab === "consultorios" && (
-          <CrudConsultorios token={token} salas={salas} consultorios={consultorios} onSaved={reload} />
+          <CrudConsultorios
+            token={token}
+            sedes={sedes}
+            salas={salas}
+            consultorios={consultorios}
+            onSaved={reload}
+          />
         )}
         {tab === "pantallas" && (
-          <CrudPantallas token={token} salas={salas} pantallas={pantallas} onSaved={reload} />
+          <CrudPantallas token={token} pantallas={pantallas} onSaved={reload} />
         )}
         {tab === "medicos" && <CrudMedicos token={token} medicos={medicos} onSaved={reload} />}
         {tab === "usuarios" && (
@@ -385,20 +391,24 @@ function CrudSalas({
 
 function CrudConsultorios({
   token,
+  sedes,
   salas,
   consultorios,
   onSaved,
 }: {
   token: string;
+  sedes: Sede[];
   salas: Sala[];
   consultorios: Consultorio[];
   onSaved: () => void;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
+  const [sedeId, setSedeId] = useState<number | "">("");
   const [salaId, setSalaId] = useState<number | "">("");
   const [numero, setNumero] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [edit, setEdit] = useState<Consultorio | null>(null);
+  const [editSedeId, setEditSedeId] = useState<number | "">("");
   const [editSalaId, setEditSalaId] = useState<number | "">("");
   const [editNumero, setEditNumero] = useState("");
   const [editDescripcion, setEditDescripcion] = useState("");
@@ -406,11 +416,28 @@ function CrudConsultorios({
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  const salasForSede = (id: number | "") =>
+    id === "" ? [] : salas.filter((s) => s.sede_id === id);
+
   const openCreate = () => {
+    setSedeId("");
     setSalaId("");
     setNumero("");
     setDescripcion("");
     setCreateOpen(true);
+  };
+
+  const onCreateSedeChange = (next: number | "") => {
+    setSedeId(next);
+    setSalaId("");
+  };
+
+  const onEditSedeChange = (next: number | "") => {
+    setEditSedeId(next);
+    const allowed = salasForSede(next);
+    if (editSalaId !== "" && !allowed.some((s) => s.id === editSalaId)) {
+      setEditSalaId("");
+    }
   };
 
   const onCreate = async (e: FormEvent) => {
@@ -430,6 +457,8 @@ function CrudConsultorios({
 
   const openEdit = (c: Consultorio) => {
     setEdit(c);
+    const sala = salas.find((s) => s.id === c.sala_id);
+    setEditSedeId(c.sede_id ?? sala?.sede_id ?? "");
     setEditSalaId(c.sala_id);
     setEditNumero(c.numero);
     setEditDescripcion(c.descripcion ?? "");
@@ -465,10 +494,13 @@ function CrudConsultorios({
       newLabel="Nuevo consultorio"
     >
       <EntityTable
-        headers={["ID", "Sala", "Número", "Descripción", "Activo", ""]}
+        headers={["ID", "Sede", "Sala", "Número", "Descripción", "Activo", ""]}
         rows={consultorios.map((c) => [
           c.id,
-          salas.find((x) => x.id === c.sala_id)?.nombre ?? c.sala_id,
+          c.sede_nombre ??
+            sedes.find((x) => x.id === salas.find((s) => s.id === c.sala_id)?.sede_id)?.nombre ??
+            "-",
+          c.sala_nombre ?? salas.find((x) => x.id === c.sala_id)?.nombre ?? c.sala_id,
           c.numero,
           c.descripcion ?? "-",
           c.activo ? "Sí" : "No",
@@ -483,10 +515,32 @@ function CrudConsultorios({
         submitLabel="Crear"
       >
         <FieldLabel>
-          Sala
-          <select className={inputClass()} value={salaId} onChange={(e) => setSalaId(Number(e.target.value))} required>
+          Sede
+          <select
+            className={inputClass()}
+            value={sedeId}
+            onChange={(e) => onCreateSedeChange(e.target.value ? Number(e.target.value) : "")}
+            required
+          >
+            <option value="">Sede...</option>
+            {sedes.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.nombre}
+              </option>
+            ))}
+          </select>
+        </FieldLabel>
+        <FieldLabel>
+          Sala / Piso
+          <select
+            className={inputClass()}
+            value={salaId}
+            onChange={(e) => setSalaId(e.target.value ? Number(e.target.value) : "")}
+            required
+            disabled={sedeId === ""}
+          >
             <option value="">Sala...</option>
-            {salas.map((s) => (
+            {salasForSede(sedeId).map((s) => (
               <option key={s.id} value={s.id}>
                 {s.nombre}
               </option>
@@ -509,9 +563,32 @@ function CrudConsultorios({
       </Modal>
       <Modal open={!!edit} title="Editar consultorio" onClose={() => setEdit(null)} onSubmit={onUpdate} saving={saving}>
         <FieldLabel>
-          Sala
-          <select className={inputClass()} value={editSalaId} onChange={(e) => setEditSalaId(Number(e.target.value))} required>
-            {salas.map((s) => (
+          Sede
+          <select
+            className={inputClass()}
+            value={editSedeId}
+            onChange={(e) => onEditSedeChange(e.target.value ? Number(e.target.value) : "")}
+            required
+          >
+            <option value="">Sede...</option>
+            {sedes.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.nombre}
+              </option>
+            ))}
+          </select>
+        </FieldLabel>
+        <FieldLabel>
+          Sala / Piso
+          <select
+            className={inputClass()}
+            value={editSalaId}
+            onChange={(e) => setEditSalaId(e.target.value ? Number(e.target.value) : "")}
+            required
+            disabled={editSedeId === ""}
+          >
+            <option value="">Sala...</option>
+            {salasForSede(editSedeId).map((s) => (
               <option key={s.id} value={s.id}>
                 {s.nombre}
               </option>
@@ -535,21 +612,17 @@ function CrudConsultorios({
 
 function CrudPantallas({
   token,
-  salas,
   pantallas,
   onSaved,
 }: {
   token: string;
-  salas: Sala[];
   pantallas: Pantalla[];
   onSaved: () => void;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
-  const [salaId, setSalaId] = useState<number | "">("");
   const [nombre, setNombre] = useState("");
   const [codigo, setCodigo] = useState("");
   const [edit, setEdit] = useState<Pantalla | null>(null);
-  const [editSalaId, setEditSalaId] = useState<number | "">("");
   const [editNombre, setEditNombre] = useState("");
   const [editCodigo, setEditCodigo] = useState("");
   const [editActivo, setEditActivo] = useState(true);
@@ -557,7 +630,6 @@ function CrudPantallas({
   const [formError, setFormError] = useState<string | null>(null);
 
   const openCreate = () => {
-    setSalaId("");
     setNombre("");
     setCodigo("");
     setCreateOpen(true);
@@ -565,8 +637,7 @@ function CrudPantallas({
 
   const onCreate = async (e: FormEvent) => {
     e.preventDefault();
-    if (salaId === "") return;
-    await api.admin.createPantalla(token, { sala_id: salaId, nombre, codigo, activo: true });
+    await api.admin.createPantalla(token, { nombre, codigo, activo: true });
     setNombre("");
     setCodigo("");
     setCreateOpen(false);
@@ -575,7 +646,6 @@ function CrudPantallas({
 
   const openEdit = (p: Pantalla) => {
     setEdit(p);
-    setEditSalaId(p.sala_id);
     setEditNombre(p.nombre);
     setEditCodigo(p.codigo);
     setEditActivo(p.activo);
@@ -584,11 +654,10 @@ function CrudPantallas({
 
   const onUpdate = async (e: FormEvent) => {
     e.preventDefault();
-    if (!edit || editSalaId === "") return;
+    if (!edit) return;
     setSaving(true);
     try {
       await api.admin.updatePantalla(token, edit.id, {
-        sala_id: Number(editSalaId),
         nombre: editNombre,
         codigo: editCodigo,
         activo: editActivo,
@@ -603,12 +672,16 @@ function CrudPantallas({
   };
 
   return (
-    <CrudSection title="Pantallas" description="Dispositivos de llamado por sala." onNew={openCreate} newLabel="Nueva pantalla">
+    <CrudSection
+      title="Pantallas"
+      description="Dispositivos independientes; sede y sala se eligen en /pantalla/setup."
+      onNew={openCreate}
+      newLabel="Nueva pantalla"
+    >
       <EntityTable
-        headers={["ID", "Sala", "Nombre", "Código", "Activo", ""]}
+        headers={["ID", "Nombre", "Código / URL", "Activo", ""]}
         rows={pantallas.map((p) => [
           p.id,
-          salas.find((x) => x.id === p.sala_id)?.nombre ?? p.sala_id,
           p.nombre,
           p.codigo,
           p.activo ? "Sí" : "No",
@@ -623,17 +696,6 @@ function CrudPantallas({
         submitLabel="Crear"
       >
         <FieldLabel>
-          Sala
-          <select className={inputClass()} value={salaId} onChange={(e) => setSalaId(Number(e.target.value))} required>
-            <option value="">Sala...</option>
-            {salas.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.nombre}
-              </option>
-            ))}
-          </select>
-        </FieldLabel>
-        <FieldLabel>
           Nombre
           <input className={inputClass()} placeholder="Nombre pantalla" value={nombre} onChange={(e) => setNombre(e.target.value)} required />
         </FieldLabel>
@@ -643,16 +705,6 @@ function CrudPantallas({
         </FieldLabel>
       </Modal>
       <Modal open={!!edit} title="Editar pantalla" onClose={() => setEdit(null)} onSubmit={onUpdate} saving={saving}>
-        <FieldLabel>
-          Sala
-          <select className={inputClass()} value={editSalaId} onChange={(e) => setEditSalaId(Number(e.target.value))} required>
-            {salas.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.nombre}
-              </option>
-            ))}
-          </select>
-        </FieldLabel>
         <FieldLabel>
           Nombre
           <input className={inputClass()} value={editNombre} onChange={(e) => setEditNombre(e.target.value)} required />

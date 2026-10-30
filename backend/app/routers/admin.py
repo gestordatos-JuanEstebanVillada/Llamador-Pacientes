@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.auth.deps import require_admin
 from app.auth.security import hash_password
@@ -15,8 +15,8 @@ from app.schemas.common import (
     MedicoBase,
     MedicoOut,
     MessageOut,
-    PantallaBase,
     PantallaOut,
+    PantallaWrite,
     SedeBase,
     SedeOut,
     SalaBase,
@@ -31,6 +31,50 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 def _bool_to_int(value: bool) -> int:
     return 1 if value else 0
+
+
+def _sala_id_for_new_pantalla(db: Session) -> int:
+    """
+    Oracle exige SALA_ID NOT NULL y UNIQUE por pantalla.
+    Asigna automáticamente la primera sala activa sin pantalla (solo uso interno en BD).
+    La sede/sala real la elige el operador en /pantalla/setup.
+    """
+    used_sala_ids = {row[0] for row in db.query(Pantalla.sala_id).all()}
+    q = db.query(Sala).filter(Sala.activo == 1)
+    if used_sala_ids:
+        q = q.filter(~Sala.id.in_(used_sala_ids))
+    sala = q.order_by(Sala.id).first()
+    if not sala:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "No hay salas libres para registrar otra pantalla. "
+                "Cree una sala adicional en el panel admin (cada pantalla consume una sala interna en BD)."
+            ),
+        )
+    return sala.id
+
+
+def _consultorio_query(db: Session):
+    return db.query(Consultorio).options(
+        joinedload(Consultorio.sala).joinedload(Sala.sede),
+    )
+
+
+def _consultorio_out(row: Consultorio) -> ConsultorioOut:
+    sala = row.sala
+    sede = sala.sede if sala else None
+    return ConsultorioOut(
+        id=row.id,
+        sala_id=row.sala_id,
+        numero=row.numero,
+        descripcion=row.descripcion,
+        activo=bool(row.activo),
+        fecha_creacion=row.fecha_creacion,
+        sala_nombre=sala.nombre if sala else "",
+        sede_id=sede.id if sede else None,
+        sede_nombre=sede.nombre if sede else "",
+    )
 
 
 @router.get("/dashboard/metrics", response_model=DashboardMetrics)
@@ -133,10 +177,18 @@ def update_sala(sala_id: int, body: SalaBase, db: Session = Depends(get_db), _=D
 def list_consultorios(
     sala_id: int | None = None, db: Session = Depends(get_db), _=Depends(require_admin)
 ):
-    q = db.query(Consultorio)
+    q = _consultorio_query(db)
     if sala_id is not None:
         q = q.filter(Consultorio.sala_id == sala_id)
-    return q.order_by(Consultorio.numero).all()
+    rows = q.all()
+    rows.sort(
+        key=lambda r: (
+            (r.sala.sede.nombre if r.sala and r.sala.sede else "").lower(),
+            (r.sala.nombre if r.sala else "").lower(),
+            r.numero.lower(),
+        )
+    )
+    return [_consultorio_out(r) for r in rows]
 
 
 @router.post("/consultorios", response_model=ConsultorioOut, status_code=status.HTTP_201_CREATED)
@@ -150,8 +202,9 @@ def create_consultorio(body: ConsultorioBase, db: Session = Depends(get_db), _=D
     )
     db.add(row)
     db.commit()
-    db.refresh(row)
-    return row
+    loaded = _consultorio_query(db).filter(Consultorio.id == row.id).first()
+    assert loaded is not None
+    return _consultorio_out(loaded)
 
 
 @router.put("/consultorios/{consultorio_id}", response_model=ConsultorioOut)
@@ -166,8 +219,9 @@ def update_consultorio(
     row.descripcion = body.descripcion
     row.activo = _bool_to_int(body.activo)
     db.commit()
-    db.refresh(row)
-    return row
+    loaded = _consultorio_query(db).filter(Consultorio.id == consultorio_id).first()
+    assert loaded is not None
+    return _consultorio_out(loaded)
 
 
 @router.get("/pantallas", response_model=list[PantallaOut])
@@ -176,9 +230,9 @@ def list_pantallas(db: Session = Depends(get_db), _=Depends(require_admin)):
 
 
 @router.post("/pantallas", response_model=PantallaOut, status_code=status.HTTP_201_CREATED)
-def create_pantalla(body: PantallaBase, db: Session = Depends(get_db), _=Depends(require_admin)):
+def create_pantalla(body: PantallaWrite, db: Session = Depends(get_db), _=Depends(require_admin)):
     row = Pantalla(
-        sala_id=body.sala_id,
+        sala_id=_sala_id_for_new_pantalla(db),
         nombre=body.nombre,
         codigo=body.codigo,
         activo=_bool_to_int(body.activo),
@@ -192,12 +246,11 @@ def create_pantalla(body: PantallaBase, db: Session = Depends(get_db), _=Depends
 
 @router.put("/pantallas/{pantalla_id}", response_model=PantallaOut)
 def update_pantalla(
-    pantalla_id: int, body: PantallaBase, db: Session = Depends(get_db), _=Depends(require_admin)
+    pantalla_id: int, body: PantallaWrite, db: Session = Depends(get_db), _=Depends(require_admin)
 ):
     row = db.query(Pantalla).filter(Pantalla.id == pantalla_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="Pantalla no encontrada")
-    row.sala_id = body.sala_id
     row.nombre = body.nombre
     row.codigo = body.codigo
     row.activo = _bool_to_int(body.activo)
