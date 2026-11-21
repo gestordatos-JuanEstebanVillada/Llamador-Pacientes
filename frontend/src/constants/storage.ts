@@ -65,6 +65,26 @@ export function loadAuthRaw(): string | null {
   return store.getItem(AUTH_STORAGE_KEY);
 }
 
+export interface StoredAuthSession {
+  token: string;
+  username: string;
+  rol: string;
+  medicoId: number | null;
+}
+
+/** Sesión persistida (sessionStorage); útil si React aún no propagó el contexto tras login. */
+export function loadStoredAuthSession(): StoredAuthSession | null {
+  try {
+    const raw = loadAuthRaw();
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredAuthSession;
+    if (!parsed.token) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export function saveAuthRaw(json: string): void {
   store.setItem(AUTH_STORAGE_KEY, json);
 }

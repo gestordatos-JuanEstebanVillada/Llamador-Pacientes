@@ -1,15 +1,15 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 
 import { BrandLogo } from "../../components/BrandLogo";
 import { MedicoAgendaHoyPanel } from "../../components/medico/MedicoAgendaHoyPanel";
 import { MedicoTodayCallsPanel } from "../../components/medico/MedicoTodayCallsPanel";
-import { loadMedicoConfig } from "../../constants/storage";
+import { loadMedicoConfig, loadStoredAuthSession } from "../../constants/storage";
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../lib/api";
 
 export default function MedicoCallPage() {
-  const { token, rol, username, logout, isAuthenticated } = useAuth();
+  const { token, rol, username, logout } = useAuth();
   const navigate = useNavigate();
   const cfg = loadMedicoConfig();
   const [paciente, setPaciente] = useState("");
@@ -18,7 +18,17 @@ export default function MedicoCallPage() {
   const [loading, setLoading] = useState(false);
   const [callsRefreshKey, setCallsRefreshKey] = useState(0);
 
-  if (!isAuthenticated || !token) return <Navigate to="/login" replace />;
+  const sessionToken = useMemo(
+    () => token ?? loadStoredAuthSession()?.token ?? null,
+    [token],
+  );
+
+  const sessionUsername = useMemo(
+    () => username ?? loadStoredAuthSession()?.username ?? null,
+    [username],
+  );
+
+  if (!sessionToken) return <Navigate to="/login" replace />;
   if (rol !== "MEDICO" && rol !== "ADMIN") return <Navigate to="/login" replace />;
   if (!cfg) return <Navigate to="/medico/setup" replace />;
 
@@ -33,7 +43,7 @@ export default function MedicoCallPage() {
     }
     setLoading(true);
     try {
-      const res = await api.createCall(token, cfg.consultorioId, nombre);
+      const res = await api.createCall(sessionToken, cfg.consultorioId, nombre);
       setMessage(`Llamada enviada: ${res.paciente_nombre} → consultorio ${res.consultorio_numero}`);
       setPaciente("");
       setCallsRefreshKey((k) => k + 1);
@@ -44,7 +54,7 @@ export default function MedicoCallPage() {
     }
   };
 
-  const showAgenda = rol === "MEDICO";
+  const agendaFetchEnabled = rol === "MEDICO";
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 relative">
@@ -53,7 +63,7 @@ export default function MedicoCallPage() {
           <BrandLogo className="h-10 w-auto" />
           <div>
             <h1 className="text-lg font-semibold text-slate-800">Panel Médico</h1>
-            <p className="text-sm text-gray-500">{username}</p>
+            <p className="text-sm text-gray-500">{sessionUsername}</p>
           </div>
         </div>
         <div className="flex gap-3 text-sm items-center">
@@ -81,19 +91,17 @@ export default function MedicoCallPage() {
         </p>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          {showAgenda && (
-            <div className="min-w-0 lg:sticky lg:top-6">
-              <MedicoAgendaHoyPanel
-                token={token}
-                refreshKey={callsRefreshKey}
-                onSelectPatient={(nombre) => setPaciente(nombre)}
-              />
-            </div>
-          )}
+          <div className="min-w-0 lg:sticky lg:top-6">
+            <MedicoAgendaHoyPanel
+              token={sessionToken}
+              username={sessionUsername}
+              fetchEnabled={agendaFetchEnabled}
+              refreshKey={callsRefreshKey}
+              onSelectPatient={(nombre) => setPaciente(nombre)}
+            />
+          </div>
 
-          <div
-            className={`flex flex-col gap-6 min-w-0 ${showAgenda ? "" : "lg:col-span-2 max-w-2xl mx-auto w-full"}`}
-          >
+          <div className="flex flex-col gap-6 min-w-0">
             <form
               onSubmit={onCall}
               className="space-y-6 rounded-xl border border-gray-100 bg-white p-8 shadow-sm"
@@ -118,7 +126,7 @@ export default function MedicoCallPage() {
               </button>
             </form>
 
-            <MedicoTodayCallsPanel token={token} refreshKey={callsRefreshKey} />
+            <MedicoTodayCallsPanel token={sessionToken} refreshKey={callsRefreshKey} />
           </div>
         </div>
       </main>

@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 
 import {
   clearAuth,
@@ -57,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       medicoId: res.medico_id ?? null,
     };
     saveAuthRaw(JSON.stringify(next));
-    setState(next);
+    flushSync(() => setState(next));
     return next;
   }, []);
 
