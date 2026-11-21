@@ -70,7 +70,7 @@ function WaitingInstitutionalVideo() {
   }, []);
 
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-2xl shadow-xl">
+    <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-slate-900 shadow-xl">
       <video
         ref={videoRef}
         src={institutionalVideoUrl}
@@ -78,7 +78,7 @@ function WaitingInstitutionalVideo() {
         loop
         muted
         playsInline
-        className="absolute inset-0 h-full w-full object-cover"
+        className="h-full w-full object-cover"
         aria-label="Video institucional Fundación La Liga"
       />
     </div>
@@ -89,36 +89,41 @@ function WaitingHistoryPanel({ history }: { history: HistoryEntry[] }) {
   const visible = history.slice(0, WAITING_HISTORY_MAX);
 
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-gray-100 bg-white p-6 shadow-xl">
-      <div className="flex shrink-0 items-center gap-2">
-        <History className="h-6 w-6 shrink-0 text-rose-600" aria-hidden />
-        <h2 className="text-xl font-semibold text-slate-800">Últimos Llamados</h2>
-      </div>
+    <div className="flex h-full min-h-0 flex-col justify-between overflow-hidden rounded-2xl border border-gray-100 bg-white p-[2.2vh] px-6 shadow-xl">
+      <div className="shrink-0">
+        <div className="flex items-center gap-2">
+          <History className="h-6 w-6 shrink-0 text-rose-600" aria-hidden />
+          <h2 className="text-[clamp(1rem,1.6vw,1.25rem)] font-semibold text-slate-800">Últimos Llamados</h2>
+        </div>
 
-      {visible.length === 0 ? (
-        <p className="mt-8 text-center text-sm text-slate-500">Sin llamados recientes en esta sesión.</p>
-      ) : (
-        <>
-          <div className="mb-2 mt-6 flex shrink-0 items-center justify-between border-b border-gray-100 px-4 pb-2 text-xs font-bold uppercase tracking-widest text-slate-400 md:text-sm">
+        {visible.length === 0 ? (
+          <p className="mt-6 text-center text-[clamp(0.8rem,1.2vw,0.95rem)] text-slate-500">
+            Sin llamados recientes en esta sesión.
+          </p>
+        ) : (
+          <div className="mt-4 flex shrink-0 items-center justify-between border-b border-gray-100 pb-2 text-[clamp(0.65rem,1vw,0.85rem)] font-bold uppercase tracking-widest text-slate-400">
             <span>Paciente</span>
             <span>Consultorio</span>
           </div>
-          <div className="mt-2 flex flex-1 flex-col justify-evenly px-2">
-            {visible.map((item, idx) => (
-              <div
-                key={`${item.paciente_nombre}-${item.consultorio_numero}-${idx}`}
-                className="flex items-center justify-between gap-6 border-b border-gray-50 py-4 last:border-0"
-              >
-                <p className="min-w-0 flex-1 truncate text-3xl font-bold capitalize text-slate-800">
-                  {item.paciente_nombre}
-                </p>
-                <p className="shrink-0 text-5xl font-black tabular-nums text-rose-600">
-                  {item.consultorio_numero}
-                </p>
-              </div>
-            ))}
-          </div>
-        </>
+        )}
+      </div>
+
+      {visible.length > 0 && (
+        <div className="flex min-h-0 flex-1 flex-col justify-evenly divide-y divide-gray-100">
+          {visible.map((item, idx) => (
+            <div
+              key={`${item.paciente_nombre}-${item.consultorio_numero}-${idx}`}
+              className="flex items-center justify-between gap-4 py-1.5"
+            >
+              <p className="min-w-0 flex-1 truncate text-[clamp(1.15rem,1.85vw,1.85rem)] font-bold capitalize text-slate-800">
+                {item.paciente_nombre}
+              </p>
+              <p className="shrink-0 text-[clamp(1.5rem,2.6vw,2.6rem)] font-black tabular-nums text-rose-600">
+                {item.consultorio_numero}
+              </p>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -362,9 +367,22 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
     !browserOnline || status === "connecting" || status === "reconnecting";
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col relative">
-      <div className="absolute top-4 left-4 z-10">
-        <BrandLogo className="h-14 md:h-16 w-auto" />
+    <div className="relative min-h-screen overflow-hidden bg-slate-50">
+      <div className="fixed top-4 left-6 z-50">
+        <BrandLogo className="h-10 sm:h-12 lg:h-14 w-auto" />
+      </div>
+
+      <div className="fixed top-4 right-4 sm:right-6 z-50 flex items-center gap-3 sm:gap-4 whitespace-nowrap text-xs sm:text-sm text-slate-500">
+        <button
+          type="button"
+          onClick={() => navigate("/pantalla/setup")}
+          className="underline transition-colors hover:text-rose-600"
+        >
+          Cambiar sala
+        </button>
+        <button type="button" onClick={logout} className="transition-colors hover:text-slate-800">
+          Cerrar sesión
+        </button>
       </div>
 
       <button
@@ -373,27 +391,15 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
         disabled={clearingQueue}
         title="Limpiar cola de llamadas"
         aria-label="Limpiar cola de llamadas"
-        className="fixed bottom-4 right-4 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-gray-200 bg-white/90 text-gray-500 shadow-md backdrop-blur hover:border-rose-300 hover:text-rose-600 disabled:opacity-50"
+        className="fixed bottom-4 right-4 z-50 flex h-11 w-11 items-center justify-center rounded-full border border-gray-200 bg-white/90 text-gray-500 shadow-md backdrop-blur hover:border-rose-300 hover:text-rose-600 disabled:opacity-50"
       >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5" aria-hidden>
           <path d="M11 1.5v1h2v-1a1 1 0 0 0-1-1h-1a1 1 0 0 0-1 1Zm-5 4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v1h3.5a1 1 0 1 1 0 2h-.653l-1.064 12.5A2.5 2.5 0 0 1 16.88 22H7.12a2.5 2.5 0 0 1-2.493-2.25L3.153 8.5H2.5a1 1 0 1 1 0-2H6V5.5Zm2 0v1h8v-1H8Zm1.347 3.5-.95 11.4h8.206l-.95-11.4H9.347Z" />
         </svg>
       </button>
 
-      <div className="flex justify-end items-center px-4 py-2 text-xs text-gray-500 gap-3">
-        <span className="hidden sm:inline">
-          {cfg.sedeNombre} · {cfg.salaNombre}
-        </span>
-        <button type="button" onClick={() => navigate("/pantalla/setup")} className="hover:text-rose-600 underline">
-          Cambiar sala
-        </button>
-        <button type="button" onClick={logout} className="hover:text-gray-800">
-          Cerrar sesión
-        </button>
-      </div>
-
       {connectionLost && (
-        <div className="bg-amber-500 text-white text-center py-2 text-sm font-medium">
+        <div className="fixed top-14 left-0 right-0 z-40 bg-amber-500 text-white text-center py-2 text-sm font-medium">
           {!browserOnline
             ? "Sin conexión… Reconectando"
             : status === "connecting"
@@ -403,39 +409,43 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
       )}
 
       {queueSize > 0 && showCalling && (
-        <div className="bg-rose-50 text-center py-1 text-xs text-rose-700 border-b border-rose-100">
+        <div className="fixed top-14 left-0 right-0 z-40 border-b border-rose-100 bg-rose-50 text-center py-1 text-xs text-rose-700">
           {queueSize} llamada(s) en cola
         </div>
       )}
 
       {!showCalling ? (
-        <div className="absolute inset-0 flex h-screen w-full flex-col items-center justify-center overflow-hidden bg-slate-50">
-          <header className="flex flex-col items-center justify-center text-center">
-            <p className="text-sm font-semibold uppercase tracking-widest text-rose-600">EN ESPERA</p>
-            <p className="mt-2 text-xl text-gray-700 md:text-2xl">
+        <div className="flex h-screen w-full flex-col items-center justify-center overflow-hidden bg-slate-50 px-[4vw] pt-16 pb-8">
+          <header className="shrink-0 flex flex-col items-center justify-center text-center">
+            <p className="text-[clamp(1rem,1.6vw,1.5rem)] font-bold uppercase tracking-widest text-rose-600">
+              EN ESPERA
+            </p>
+            <p className="mt-1 text-[clamp(1rem,1.5vw,1.4rem)] text-slate-600">
               {cfg.sedeNombre} · {cfg.salaNombre}
             </p>
-            <WaitingClock className="mt-4 text-8xl md:text-9xl" />
+            <WaitingClock className="mt-1 text-[clamp(3.2rem,7vw,7.5rem)] font-bold leading-none text-slate-800" />
           </header>
 
-          <div className="mt-12 grid w-full max-w-[90%] grid-cols-2 items-stretch gap-12 2xl:max-w-[1600px]">
-            <div className="flex h-full min-h-0 flex-col">
-              <WaitingInstitutionalVideo />
-            </div>
+          <div className="mt-[3.5vh] grid w-full max-w-[min(92vw,148vh)] grid-cols-1 items-stretch gap-[3vw] md:grid-cols-2">
+            <WaitingInstitutionalVideo />
             <WaitingHistoryPanel history={history} />
           </div>
         </div>
       ) : (
-        <div className="flex-1 flex flex-col items-center justify-center p-8 pt-16 text-center">
-          <p className="text-rose-600 uppercase tracking-widest text-xl mb-6 font-semibold">Paciente llamado</p>
-          <h2 className="text-6xl md:text-8xl font-black text-slate-900 break-words max-w-5xl leading-tight">
-            {currentCall.paciente_nombre}
-          </h2>
-          <p className="mt-10 text-4xl md:text-5xl text-gray-600">
-            Consultorio{" "}
-            <span className="font-bold text-rose-600">{currentCall.consultorio_numero}</span>
-          </p>
-        </div>
+        currentCall && (
+          <div className="fixed inset-0 z-40 flex flex-col items-center justify-center overflow-hidden bg-slate-50 px-[5vw] pt-20 pb-10 text-center">
+            <p className="mb-[2vh] text-[clamp(1.1rem,2vw,1.75rem)] font-semibold uppercase tracking-widest text-rose-600">
+              Paciente llamado
+            </p>
+            <h2 className="line-clamp-3 w-full max-w-[90vw] break-words text-[clamp(2.5rem,6.2vw,6.5rem)] font-black leading-[1.08] text-slate-900">
+              {currentCall.paciente_nombre}
+            </h2>
+            <p className="mt-[4vh] text-[clamp(2rem,4vw,4rem)] font-medium text-slate-600">
+              Consultorio{" "}
+              <span className="font-black text-rose-600">{currentCall.consultorio_numero}</span>
+            </p>
+          </div>
+        )
       )}
     </div>
   );

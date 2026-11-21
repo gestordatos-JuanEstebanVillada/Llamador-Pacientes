@@ -46,6 +46,13 @@ def require_medico(user: Usuario = Depends(get_current_user)) -> Usuario:
     return user
 
 
+def require_medico_only(user: Usuario = Depends(get_current_user)) -> Usuario:
+    """Solo cuentas con rol MEDICO (sin ADMIN ni otros)."""
+    if user.rol != "MEDICO":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Se requiere rol MEDICO")
+    return user
+
+
 def require_pantalla(user: Usuario = Depends(get_current_user)) -> Usuario:
     if user.rol not in ("PANTALLA", "ADMIN"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Se requiere rol PANTALLA")

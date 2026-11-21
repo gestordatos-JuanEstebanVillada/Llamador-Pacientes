@@ -47,7 +47,7 @@ export function MedicoTodayCallsPanel({
   const fechaLabel = data ? formatLongDateFromIso(data.fecha) : "";
 
   return (
-    <section className="mt-8 rounded-xl border border-gray-100 bg-white shadow-sm overflow-hidden">
+    <section className="rounded-xl border border-gray-100 bg-white shadow-sm overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -61,7 +61,7 @@ export function MedicoTodayCallsPanel({
           </span>
         </div>
         <ChevronDown
-          className={`h-5 w-5 shrink-0 text-slate-500 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-5 w-5 shrink-0 text-slate-500 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
           aria-hidden
         />
       </button>

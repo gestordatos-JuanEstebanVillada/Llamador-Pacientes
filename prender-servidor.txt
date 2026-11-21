@@ -1,0 +1,96 @@
+================================================================================
+LLAMADOR — CÓMO PRENDER EL SERVIDOR
+================================================================================
+
+Requisitos previos
+------------------
+- Oracle con tablas LLAMADOR_* creadas (ver db.txt).
+- Archivo backend/.env con conexión a Oracle, JWT, CORS, etc.
+- Python 3.11+ y Node.js 18+ (desarrollo local).
+- Docker y Docker Compose (producción con contenedores).
+
+Credenciales de ejemplo (si usaste los datos iniciales de db.txt):
+  usuario: admin
+  contraseña: admin123
+
+
+================================================================================
+OPCIÓN A — DESARROLLO LOCAL (recomendado para programar)
+================================================================================
+
+Necesitas DOS terminales: una para el backend y otra para el frontend.
+
+--- Terminal 1: Backend (FastAPI) ---
+
+  cd backend
+
+  (Primera vez) crear entorno virtual e instalar dependencias:
+    python -m venv .venv
+    .venv\Scripts\activate
+    pip install -r requirements.txt
+
+  (Cada vez) activar venv y levantar API:
+    .venv\Scripts\activate
+    uvicorn app.main:app --reload --host 0.0.0.0 --port 3914
+
+  Comprobar: abrir en el navegador
+    http://127.0.0.1:3914/api/health
+  Debe responder: {"status":"ok"}
+
+
+--- Terminal 2: Frontend (React + Vite) ---
+
+  cd frontend
+
+  (Primera vez) instalar dependencias:
+    npm install
+
+  (Cada vez) servidor de desarrollo:
+    npm run dev
+
+  Abrir la URL que muestre Vite (suele ser http://localhost:5173).
+  El proxy de Vite reenvía /api y /ws al backend en el puerto 3914.
+
+
+Resumen puertos (local)
+-----------------------
+  Backend API:     http://127.0.0.1:3914
+  Frontend (Vite): http://localhost:5173  (el puerto puede variar)
+
+
+================================================================================
+OPCIÓN B — PRODUCCIÓN CON DOCKER
+================================================================================
+
+Desde la carpeta raíz del proyecto (donde está docker-compose.yml):
+
+  docker compose up -d --build
+
+Ver logs:
+  docker compose logs -f
+
+Detener:
+  docker compose down
+
+Puertos publicados
+------------------
+  Frontend (nginx): http://localhost:8527
+  Backend (directo): http://localhost:3914
+  En producción suele usarse solo el frontend (8527); nginx hace proxy a /api y /ws.
+
+Antes del primer docker compose:
+  - Revisar backend/.env (Oracle accesible desde el contenedor).
+  - Si cambias código: docker compose up -d --build
+
+
+================================================================================
+SOLUCIÓN RÁPIDA DE PROBLEMAS
+================================================================================
+
+- Error al conectar a Oracle: revisar backend/.env (host, puerto, usuario, servicio).
+- El frontend no ve la API en local: confirma que uvicorn esté en 3914 y que uses
+  npm run dev (no abrir el build estático sin proxy).
+- Pantalla / WebSocket: en local el WS pasa por Vite (ws://localhost:5173/ws/...).
+- En Docker, pantalla y médico entran por http://<servidor>:8527.
+
+================================================================================

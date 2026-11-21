@@ -75,6 +75,11 @@ export const api = {
       body: JSON.stringify({ consultorio_id: consultorioId, paciente_nombre: pacienteNombre }),
     }),
 
+  getMedicoCitasHoy: (token: string) =>
+    apiFetch<import("../types").CitasHoy>("/api/medicos/citas-hoy", {
+      headers: authHeaders(token),
+    }),
+
   getMedicoCallsToday: (
     token: string,
     params?: { page?: number; limit?: number },

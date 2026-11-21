@@ -190,6 +190,21 @@ class MedicoCallTodayRowOut(BaseModel):
     estado: str
 
 
+class CitaHoyRowOut(BaseModel):
+    hora: str
+    pactid: str | None = None
+    citcar: str | None = None
+    nombre: str
+    pacsex: str | None = None
+    citest: str
+
+
+class CitasHoyOut(BaseModel):
+    fecha: date
+    username: str
+    data: list[CitaHoyRowOut]
+
+
 class MedicoCallsTodayOut(BaseModel):
     fecha: date
     data: list[MedicoCallTodayRowOut]

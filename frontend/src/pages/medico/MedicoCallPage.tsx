@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 
 import { BrandLogo } from "../../components/BrandLogo";
+import { MedicoAgendaHoyPanel } from "../../components/medico/MedicoAgendaHoyPanel";
 import { MedicoTodayCallsPanel } from "../../components/medico/MedicoTodayCallsPanel";
 import { loadMedicoConfig } from "../../constants/storage";
 import { useAuth } from "../../context/AuthContext";
@@ -43,6 +44,8 @@ export default function MedicoCallPage() {
     }
   };
 
+  const showAgenda = rol === "MEDICO";
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 relative">
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center shadow-sm">
@@ -67,36 +70,57 @@ export default function MedicoCallPage() {
       <button
         type="button"
         onClick={() => navigate("/medico/setup")}
-        className="absolute top-20 right-4 text-xs text-gray-500 hover:text-rose-600 underline"
+        className="absolute top-20 right-4 text-xs text-gray-500 hover:text-rose-600 underline z-10"
       >
         Cambiar consultorio
       </button>
-      <main className="max-w-2xl mx-auto p-6 pt-10">
+
+      <main className="max-w-6xl mx-auto p-6 pt-10">
         <p className="text-center text-sm text-gray-500 mb-6">
           {cfg.sedeNombre} · {cfg.salaNombre} · Consultorio {cfg.consultorioNumero}
         </p>
-        <form onSubmit={onCall} className="space-y-6 rounded-2xl border border-gray-200 bg-white p-8 shadow-lg">
-          <label className="block text-sm text-slate-700">
-            Nombre del paciente
-            <input
-              className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-4 text-2xl text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/30 outline-none"
-              value={paciente}
-              onChange={(e) => setPaciente(e.target.value)}
-              autoFocus
-            />
-          </label>
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          {message && <p className="text-sm text-rose-600">{message}</p>}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-rose-600 py-5 text-xl font-bold text-white hover:bg-rose-700 disabled:opacity-60"
-          >
-            {loading ? "Enviando..." : "LLAMAR PACIENTE"}
-          </button>
-        </form>
 
-        <MedicoTodayCallsPanel token={token} refreshKey={callsRefreshKey} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          {showAgenda && (
+            <div className="min-w-0 lg:sticky lg:top-6">
+              <MedicoAgendaHoyPanel
+                token={token}
+                refreshKey={callsRefreshKey}
+                onSelectPatient={(nombre) => setPaciente(nombre)}
+              />
+            </div>
+          )}
+
+          <div
+            className={`flex flex-col gap-6 min-w-0 ${showAgenda ? "" : "lg:col-span-2 max-w-2xl mx-auto w-full"}`}
+          >
+            <form
+              onSubmit={onCall}
+              className="space-y-6 rounded-xl border border-gray-100 bg-white p-8 shadow-sm"
+            >
+              <label className="block text-sm text-slate-700">
+                Nombre del paciente
+                <input
+                  className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-4 text-2xl text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/30 outline-none"
+                  value={paciente}
+                  onChange={(e) => setPaciente(e.target.value)}
+                  autoFocus
+                />
+              </label>
+              {error && <p className="text-sm text-red-600">{error}</p>}
+              {message && <p className="text-sm text-rose-600">{message}</p>}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full rounded-lg bg-rose-600 py-5 text-xl font-bold text-white hover:bg-rose-700 disabled:opacity-60 transition-colors"
+              >
+                {loading ? "Enviando..." : "LLAMAR PACIENTE"}
+              </button>
+            </form>
+
+            <MedicoTodayCallsPanel token={token} refreshKey={callsRefreshKey} />
+          </div>
+        </div>
       </main>
     </div>
   );

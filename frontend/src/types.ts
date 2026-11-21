@@ -140,6 +140,21 @@ export interface MedicoCallTodayRow {
   estado: string;
 }
 
+export interface CitaHoyRow {
+  hora: string;
+  pactid: string | null;
+  citcar: string | null;
+  nombre: string;
+  pacsex: string | null;
+  citest: string;
+}
+
+export interface CitasHoy {
+  fecha: string;
+  username: string;
+  data: CitaHoyRow[];
+}
+
 export interface MedicoCallsToday {
   fecha: string;
   data: MedicoCallTodayRow[];
