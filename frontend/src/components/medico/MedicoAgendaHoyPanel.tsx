@@ -96,7 +96,7 @@ export function MedicoAgendaHoyPanel({
           )}
 
           {data && data.data.length === 0 && !loading && !error && (
-            <p className="text-sm text-gray-500 py-6 text-center">No hay citas para hoy con estado T o P.</p>
+            <p className="text-sm text-gray-500 py-6 text-center">No hay citas para hoy.</p>
           )}
 
           {data && data.data.length > 0 && (

@@ -70,7 +70,7 @@ function WaitingInstitutionalVideo() {
   }, []);
 
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-slate-900 shadow-xl">
+    <div className="relative mx-auto aspect-video w-full max-w-[min(92vw,52vh)] shrink-0 overflow-hidden rounded-2xl bg-slate-900 shadow-lg lg:max-w-none">
       <video
         ref={videoRef}
         src={institutionalVideoUrl}
@@ -89,19 +89,19 @@ function WaitingHistoryPanel({ history }: { history: HistoryEntry[] }) {
   const visible = history.slice(0, WAITING_HISTORY_MAX);
 
   return (
-    <div className="flex h-full min-h-0 flex-col justify-between overflow-hidden rounded-2xl border border-gray-100 bg-white p-[2.2vh] px-6 shadow-xl">
+    <div className="flex min-h-0 w-full flex-1 flex-col justify-between overflow-hidden rounded-2xl border border-gray-100 bg-white px-4 py-3 pb-7 shadow-xl sm:px-6 sm:py-[2vh] lg:h-full lg:flex-none lg:pb-[2vh]">
       <div className="shrink-0">
         <div className="flex items-center gap-2">
-          <History className="h-6 w-6 shrink-0 text-rose-600" aria-hidden />
-          <h2 className="text-[clamp(1rem,1.6vw,1.25rem)] font-semibold text-slate-800">Últimos Llamados</h2>
+          <History className="h-5 w-5 shrink-0 text-rose-600 sm:h-6 sm:w-6" aria-hidden />
+          <h2 className="text-[clamp(0.95rem,1.5vw,1.25rem)] font-semibold text-slate-800">Últimos Llamados</h2>
         </div>
 
         {visible.length === 0 ? (
-          <p className="mt-6 text-center text-[clamp(0.8rem,1.2vw,0.95rem)] text-slate-500">
+          <p className="mt-4 text-center text-[clamp(0.75rem,1.2vw,0.95rem)] text-slate-500 sm:mt-6">
             Sin llamados recientes en esta sesión.
           </p>
         ) : (
-          <div className="mt-4 flex shrink-0 items-center justify-between border-b border-gray-100 pb-2 text-[clamp(0.65rem,1vw,0.85rem)] font-bold uppercase tracking-widest text-slate-400">
+          <div className="mt-2 flex shrink-0 items-center justify-between border-b border-gray-100 pb-1.5 text-[clamp(0.6rem,1vw,0.85rem)] font-bold uppercase tracking-widest text-slate-400 sm:mt-3 sm:pb-2">
             <span>Paciente</span>
             <span>Consultorio</span>
           </div>
@@ -113,12 +113,12 @@ function WaitingHistoryPanel({ history }: { history: HistoryEntry[] }) {
           {visible.map((item, idx) => (
             <div
               key={`${item.paciente_nombre}-${item.consultorio_numero}-${idx}`}
-              className="flex items-center justify-between gap-4 py-1.5"
+              className="flex items-center justify-between gap-3 py-1 sm:gap-4 sm:py-1.5"
             >
-              <p className="min-w-0 flex-1 truncate text-[clamp(1.15rem,1.85vw,1.85rem)] font-bold capitalize text-slate-800">
+              <p className="min-w-0 flex-1 truncate text-[clamp(1rem,2.1vw,1.85rem)] font-bold capitalize text-slate-800">
                 {item.paciente_nombre}
               </p>
-              <p className="shrink-0 text-[clamp(1.5rem,2.6vw,2.6rem)] font-black tabular-nums text-rose-600">
+              <p className="shrink-0 text-[clamp(1.35rem,2.9vw,2.6rem)] font-black tabular-nums text-rose-600">
                 {item.consultorio_numero}
               </p>
             </div>
@@ -137,11 +137,9 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
   const [currentCall, setCurrentCall] = useState<CurrentCall | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [queueSize, setQueueSize] = useState(0);
-  const [browserOnline, setBrowserOnline] = useState(
-    typeof navigator !== "undefined" ? navigator.onLine : true,
-  );
   const [clearingQueue, setClearingQueue] = useState(false);
 
+  const sessionOpenedAtRef = useRef(Date.now());
   const audioCtxRef = useRef<AudioContext | null>(null);
   const queueRef = useRef<PatientCallEvent[]>([]);
   const processingRef = useRef(false);
@@ -263,14 +261,14 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
 
   const onPatientCall = useCallback(
     (ev: PatientCallEvent, fromHistorySync: boolean) => {
-      if (fromHistorySync) {
+      const historyOnly = fromHistorySync || ev.play_audio === false;
+      if (historyOnly) {
         seenCallIdsRef.current.add(ev.call_id);
         addToHistory(ev.paciente_nombre, ev.consultorio_numero);
         return;
       }
 
-      const normalized = { ...ev, play_audio: ev.play_audio !== false };
-      enqueueCall(normalized);
+      enqueueCall({ ...ev, play_audio: true });
     },
     [addToHistory, enqueueCall],
   );
@@ -334,16 +332,6 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
   }, [returnToWaiting]);
 
   useCallExpiry(currentCall, onExpire);
-  useEffect(() => {
-    const onOnline = () => setBrowserOnline(true);
-    const onOffline = () => setBrowserOnline(false);
-    window.addEventListener("online", onOnline);
-    window.addEventListener("offline", onOffline);
-    return () => {
-      window.removeEventListener("online", onOnline);
-      window.removeEventListener("offline", onOffline);
-    };
-  }, []);
   useEffect(
     () => () => {
       processorRunIdRef.current += 1;
@@ -354,10 +342,12 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
     [],
   );
 
-  const { status } = useSalaWebSocket({
+  const { status, browserOnline } = useSalaWebSocket({
     salaId: cfg.salaId,
     token,
     enabled: true,
+    sessionStartedAtMs: sessionOpenedAtRef.current,
+    processedCallIdsRef: seenCallIdsRef,
     onPatientCall,
     onIdle,
   });
@@ -372,15 +362,29 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
         <BrandLogo className="h-10 sm:h-12 lg:h-14 w-auto" />
       </div>
 
-      <div className="fixed top-4 right-4 sm:right-6 z-50 flex items-center gap-3 sm:gap-4 whitespace-nowrap text-xs sm:text-sm text-slate-500">
+      <div className="fixed top-4 right-4 sm:right-6 z-50 flex max-w-[min(92vw,520px)] flex-wrap items-center justify-end gap-x-3 gap-y-1 sm:gap-4 text-xs sm:text-sm text-slate-500">
+        {connectionLost && (
+          <span
+            className="flex items-center gap-1.5 whitespace-nowrap text-amber-700"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
+            Sin internet · Reconectando…
+          </span>
+        )}
         <button
           type="button"
           onClick={() => navigate("/pantalla/setup")}
-          className="underline transition-colors hover:text-rose-600"
+          className="shrink-0 underline transition-colors hover:text-rose-600"
         >
           Cambiar sala
         </button>
-        <button type="button" onClick={logout} className="transition-colors hover:text-slate-800">
+        <button
+          type="button"
+          onClick={logout}
+          className="shrink-0 transition-colors hover:text-slate-800"
+        >
           Cerrar sesión
         </button>
       </div>
@@ -391,22 +395,12 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
         disabled={clearingQueue}
         title="Limpiar cola de llamadas"
         aria-label="Limpiar cola de llamadas"
-        className="fixed bottom-4 right-4 z-50 flex h-11 w-11 items-center justify-center rounded-full border border-gray-200 bg-white/90 text-gray-500 shadow-md backdrop-blur hover:border-rose-300 hover:text-rose-600 disabled:opacity-50"
+        className="fixed bottom-2.5 right-2.5 z-50 flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white/90 text-gray-500 opacity-40 shadow-md backdrop-blur transition-opacity hover:border-rose-300 hover:text-rose-600 hover:opacity-100 disabled:opacity-30"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5" aria-hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden>
           <path d="M11 1.5v1h2v-1a1 1 0 0 0-1-1h-1a1 1 0 0 0-1 1Zm-5 4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v1h3.5a1 1 0 1 1 0 2h-.653l-1.064 12.5A2.5 2.5 0 0 1 16.88 22H7.12a2.5 2.5 0 0 1-2.493-2.25L3.153 8.5H2.5a1 1 0 1 1 0-2H6V5.5Zm2 0v1h8v-1H8Zm1.347 3.5-.95 11.4h8.206l-.95-11.4H9.347Z" />
         </svg>
       </button>
-
-      {connectionLost && (
-        <div className="fixed top-14 left-0 right-0 z-40 bg-amber-500 text-white text-center py-2 text-sm font-medium">
-          {!browserOnline
-            ? "Sin conexión… Reconectando"
-            : status === "connecting"
-              ? "Conectando…"
-              : "Sin conexión… Reconectando"}
-        </div>
-      )}
 
       {queueSize > 0 && showCalling && (
         <div className="fixed top-14 left-0 right-0 z-40 border-b border-rose-100 bg-rose-50 text-center py-1 text-xs text-rose-700">
@@ -415,32 +409,34 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
       )}
 
       {!showCalling ? (
-        <div className="flex h-screen w-full flex-col items-center justify-center overflow-hidden bg-slate-50 px-[4vw] pt-16 pb-8">
-          <header className="shrink-0 flex flex-col items-center justify-center text-center">
-            <p className="text-[clamp(1rem,1.6vw,1.5rem)] font-bold uppercase tracking-widest text-rose-600">
+        <div className="flex h-screen w-full flex-col justify-between overflow-hidden bg-slate-50 px-[3.5vw] pt-12 pb-4 sm:pt-14 sm:pb-6 lg:justify-center lg:gap-[5vh]">
+          <header className="w-full shrink-0 text-center">
+            <p className="text-[clamp(0.85rem,1.4vw,1.4rem)] font-bold uppercase tracking-widest text-rose-600">
               EN ESPERA
             </p>
-            <p className="mt-1 text-[clamp(1rem,1.5vw,1.4rem)] text-slate-600">
+            <p className="mt-0.5 text-[clamp(0.9rem,1.4vw,1.35rem)] font-medium text-slate-600">
               {cfg.sedeNombre} · {cfg.salaNombre}
             </p>
-            <WaitingClock className="mt-1 text-[clamp(3.2rem,7vw,7.5rem)] font-bold leading-none text-slate-800" />
+            <WaitingClock className="mt-0.5 text-[clamp(2.2rem,5.5vw,6.5rem)] font-bold leading-none text-slate-800" />
           </header>
 
-          <div className="mt-[3.5vh] grid w-full max-w-[min(92vw,148vh)] grid-cols-1 items-stretch gap-[3vw] md:grid-cols-2">
+          <div className="mt-[2vh] flex min-h-0 w-full flex-1 flex-col justify-center gap-[2vh] lg:mx-auto lg:grid lg:w-full lg:max-w-[min(92vw,148vh)] lg:flex-none lg:grid-cols-2 lg:items-stretch lg:gap-[3vw]">
             <WaitingInstitutionalVideo />
-            <WaitingHistoryPanel history={history} />
+            <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col lg:contents">
+              <WaitingHistoryPanel history={history} />
+            </div>
           </div>
         </div>
       ) : (
         currentCall && (
-          <div className="fixed inset-0 z-40 flex flex-col items-center justify-center overflow-hidden bg-slate-50 px-[5vw] pt-20 pb-10 text-center">
-            <p className="mb-[2vh] text-[clamp(1.1rem,2vw,1.75rem)] font-semibold uppercase tracking-widest text-rose-600">
+          <div className="fixed inset-0 z-40 flex flex-col items-center justify-center overflow-hidden bg-slate-50 px-[4vw] pt-16 pb-8 text-center sm:px-[5vw] sm:pt-20 sm:pb-10">
+            <p className="mb-[1.5vh] text-[clamp(0.95rem,1.8vw,1.75rem)] font-semibold uppercase tracking-widest text-rose-600">
               Paciente llamado
             </p>
-            <h2 className="line-clamp-3 w-full max-w-[90vw] break-words text-[clamp(2.5rem,6.2vw,6.5rem)] font-black leading-[1.08] text-slate-900">
+            <h2 className="line-clamp-3 w-full max-w-[92vw] break-words text-[clamp(2rem,6vw,6rem)] font-black leading-[1.08] text-slate-900">
               {currentCall.paciente_nombre}
             </h2>
-            <p className="mt-[4vh] text-[clamp(2rem,4vw,4rem)] font-medium text-slate-600">
+            <p className="mt-[3vh] text-[clamp(1.75rem,4.2vw,3.8rem)] font-medium text-slate-600">
               Consultorio{" "}
               <span className="font-black text-rose-600">{currentCall.consultorio_numero}</span>
             </p>
