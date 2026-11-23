@@ -1,11 +1,16 @@
 import { FormEvent, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
 
 import { BrandLogo } from "../../components/BrandLogo";
 import { MedicoAgendaHoyPanel } from "../../components/medico/MedicoAgendaHoyPanel";
 import { MedicoTodayCallsPanel } from "../../components/medico/MedicoTodayCallsPanel";
 import { loadMedicoConfig, loadStoredAuthSession } from "../../constants/storage";
 import { useAuth } from "../../context/AuthContext";
+import {
+  MEDICO_NO_INTERNET_MSG,
+  useMedicoSalaScreenStatus,
+} from "../../hooks/useMedicoSalaScreenStatus";
 import { api } from "../../lib/api";
 
 export default function MedicoCallPage() {
@@ -28,6 +33,12 @@ export default function MedicoCallPage() {
     [username],
   );
 
+  const { screenOnline, browserOnline, canCall, wsConnected } = useMedicoSalaScreenStatus({
+    salaId: cfg?.salaId ?? 0,
+    token: sessionToken ?? "",
+    enabled: Boolean(sessionToken && cfg?.salaId),
+  });
+
   if (!sessionToken) return <Navigate to="/login" replace />;
   if (rol !== "MEDICO" && rol !== "ADMIN") return <Navigate to="/login" replace />;
   if (!cfg) return <Navigate to="/medico/setup" replace />;
@@ -39,6 +50,12 @@ export default function MedicoCallPage() {
     const nombre = paciente.trim();
     if (!nombre) {
       setError("Escriba el nombre del paciente");
+      return;
+    }
+    if (!browserOnline || !screenOnline) {
+      const msg = MEDICO_NO_INTERNET_MSG;
+      setError(msg);
+      toast.error(msg);
       return;
     }
     setLoading(true);
@@ -86,8 +103,21 @@ export default function MedicoCallPage() {
       </button>
 
       <main className="max-w-6xl mx-auto p-6 pt-10">
-        <p className="text-center text-sm text-gray-500 mb-6">
+        <p className="text-center text-sm text-gray-500 mb-2">
           {cfg.sedeNombre} · {cfg.salaNombre} · Consultorio {cfg.consultorioNumero}
+        </p>
+        <p
+          className={`text-center text-xs mb-6 ${
+            screenOnline ? "text-emerald-600" : "text-amber-700"
+          }`}
+        >
+          {!browserOnline
+            ? "Sin internet en este equipo"
+            : screenOnline
+              ? "Pantalla de sala conectada"
+              : wsConnected
+                ? "Pantalla de sala sin conexión (reconectando...)"
+                : "Conectando con la pantalla de la sala..."}
         </p>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
@@ -119,7 +149,7 @@ export default function MedicoCallPage() {
               {message && <p className="text-sm text-rose-600">{message}</p>}
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || !canCall}
                 className="w-full rounded-lg bg-rose-600 py-5 text-xl font-bold text-white hover:bg-rose-700 disabled:opacity-60 transition-colors"
               >
                 {loading ? "Enviando..." : "LLAMAR PACIENTE"}

@@ -205,3 +205,12 @@ export type ScreenWsMessage =
   | { type: "idle" }
   | { type: "ping" }
   | { type: "pong" };
+
+export interface ScreenStatusEvent {
+  type: "screen_status";
+  sala_id: number;
+  online: boolean;
+  active_screens: number;
+}
+
+export type MedicoWsMessage = ScreenStatusEvent | { type: "ping" } | { type: "pong" };
