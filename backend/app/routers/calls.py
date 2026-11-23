@@ -12,6 +12,11 @@ from app.websocket.manager import sala_manager
 
 router = APIRouter(prefix="/api/calls", tags=["calls"])
 
+_NO_INTERNET_MSG = (
+    "No se puede llamar al paciente porque no hay conexión a internet. "
+    "Verifique su red y que la pantalla de la sala esté conectada."
+)
+
 
 @router.post("", response_model=CurrentCallOut)
 async def create_call(
@@ -19,6 +24,20 @@ async def create_call(
     db: Session = Depends(get_db),
     user: Usuario = Depends(require_medico),
 ):
+    consultorio = (
+        db.query(Consultorio)
+        .filter(Consultorio.id == body.consultorio_id, Consultorio.activo == 1)
+        .first()
+    )
+    if not consultorio:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consultorio no encontrado")
+
+    if not await sala_manager.has_active_screens(consultorio.sala_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_NO_INTERNET_MSG,
+        )
+
     medico_id = user.medico_id
     try:
         llamada = create_patient_call(db, body.consultorio_id, body.paciente_nombre, medico_id)
