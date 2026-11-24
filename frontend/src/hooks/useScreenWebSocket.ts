@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "../lib/api";
 import type { CurrentCall, PatientCallEvent, ScreenWsMessage } from "../types";
@@ -33,8 +33,7 @@ interface SalaWsOptions {
   token: string;
   enabled: boolean;
   sessionStartedAtMs: number;
-  processedCallIdsRef: MutableRefObject<Set<number>>;
-  onPatientCall: (event: PatientCallEvent, fromHistorySync: boolean) => void;
+  onRegisterIncomingCall: (event: PatientCallEvent, fromHistorySync: boolean) => void;
   onIdle: () => void;
 }
 
@@ -43,8 +42,7 @@ export function useSalaWebSocket({
   token,
   enabled,
   sessionStartedAtMs,
-  processedCallIdsRef,
-  onPatientCall,
+  onRegisterIncomingCall,
   onIdle,
 }: SalaWsOptions) {
   const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "reconnecting">("idle");
@@ -52,7 +50,7 @@ export function useSalaWebSocket({
     typeof navigator !== "undefined" ? navigator.onLine : true,
   );
 
-  const wsRef = useRef<WebSocket | null>(null);
+  const activeWsRef = useRef<WebSocket | null>(null);
   const retryRef = useRef(0);
   const wsEffectSessionRef = useRef(0);
   const mountedRef = useRef(true);
@@ -60,8 +58,13 @@ export function useSalaWebSocket({
   const heartbeatIntervalRef = useRef<number | undefined>(undefined);
   const pongWatchdogRef = useRef<number | undefined>(undefined);
   const connectRef = useRef<() => void>(() => {});
-  const callbacksRef = useRef({ onPatientCall, onIdle, sessionStartedAtMs, processedCallIdsRef });
-  callbacksRef.current = { onPatientCall, onIdle, sessionStartedAtMs, processedCallIdsRef };
+  const sessionStartedAtRef = useRef(sessionStartedAtMs);
+  sessionStartedAtRef.current = sessionStartedAtMs;
+
+  const onRegisterRef = useRef(onRegisterIncomingCall);
+  const onIdleRef = useRef(onIdle);
+  onRegisterRef.current = onRegisterIncomingCall;
+  onIdleRef.current = onIdle;
 
   const clearHeartbeat = useCallback(() => {
     if (heartbeatIntervalRef.current !== undefined) {
@@ -81,41 +84,18 @@ export function useSalaWebSocket({
     }
   }, []);
 
-  const scheduleReconnect = useCallback((delayMs: number, connect: () => void) => {
-    clearReconnectTimer();
-    reconnectTimerRef.current = window.setTimeout(connect, delayMs);
-  }, [clearReconnectTimer]);
-
-  const recoverPendingCalls = useCallback(async () => {
-    try {
-      const pending = await api.getPendingCallsForSala(salaId, token);
-      if (!mountedRef.current) return;
-
-      const { processedCallIdsRef: seen, sessionStartedAtMs: sessionAt } = callbacksRef.current;
-      const sessionCutoff = sessionAt - 5_000;
-      const recentCutoff = Date.now() - CATCHUP_RECENT_MS;
-
-      const toPlay = pending
-        .filter((call) => {
-          if (seen.current.has(call.call_id)) return false;
-          const t = new Date(call.fecha_llamada).getTime();
-          const inSession = t >= sessionCutoff;
-          const inRecent = t >= recentCutoff;
-          return inSession || inRecent;
-        })
-        .sort(
-          (a, b) =>
-            new Date(a.fecha_llamada).getTime() - new Date(b.fecha_llamada).getTime(),
-        );
-
-      for (const call of toPlay) {
-        seen.current.add(call.call_id);
-        callbacksRef.current.onPatientCall(currentCallToEvent(call), false);
-      }
-    } catch {
-      /* Sin API: el WS seguirá intentando */
+  const closeActiveSocket = useCallback(() => {
+    const ws = activeWsRef.current;
+    if (!ws) return;
+    ws.onmessage = null;
+    ws.onopen = null;
+    ws.onclose = null;
+    ws.onerror = null;
+    if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) {
+      ws.close();
     }
-  }, [salaId, token]);
+    activeWsRef.current = null;
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -123,9 +103,9 @@ export function useSalaWebSocket({
       mountedRef.current = false;
       clearHeartbeat();
       clearReconnectTimer();
-      wsRef.current?.close();
+      closeActiveSocket();
     };
-  }, [clearHeartbeat, clearReconnectTimer]);
+  }, [clearHeartbeat, clearReconnectTimer, closeActiveSocket]);
 
   useEffect(() => {
     const onOnline = () => {
@@ -133,7 +113,7 @@ export function useSalaWebSocket({
       clearReconnectTimer();
       retryRef.current = 0;
       clearHeartbeat();
-      wsRef.current?.close();
+      closeActiveSocket();
       connectRef.current();
     };
     const onOffline = () => setBrowserOnline(false);
@@ -144,13 +124,42 @@ export function useSalaWebSocket({
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
     };
-  }, [clearHeartbeat, clearReconnectTimer]);
+  }, [clearHeartbeat, clearReconnectTimer, closeActiveSocket]);
 
   useEffect(() => {
     if (!enabled || !salaId || !token) return;
 
     let cancelled = false;
     const sessionId = ++wsEffectSessionRef.current;
+
+    const recoverPendingCalls = async () => {
+      try {
+        const pending = await api.getPendingCallsForSala(salaId, token);
+        if (!mountedRef.current || cancelled || sessionId !== wsEffectSessionRef.current) return;
+
+        const sessionCutoff = sessionStartedAtRef.current - 5_000;
+        const recentCutoff = Date.now() - CATCHUP_RECENT_MS;
+
+        const sorted = [...pending].sort(
+          (a, b) => Date.parse(a.fecha_llamada) - Date.parse(b.fecha_llamada),
+        );
+
+        for (const call of sorted) {
+          const t = Date.parse(call.fecha_llamada);
+          const inSession = Number.isFinite(t) ? t >= sessionCutoff : true;
+          const inRecent = Number.isFinite(t) ? t >= recentCutoff : true;
+          if (!inSession && !inRecent) continue;
+          onRegisterRef.current(currentCallToEvent(call), false);
+        }
+      } catch {
+        /* Sin API: el WS seguirá intentando */
+      }
+    };
+
+    const scheduleReconnect = (delayMs: number, connect: () => void) => {
+      clearReconnectTimer();
+      reconnectTimerRef.current = window.setTimeout(connect, delayMs);
+    };
 
     const startHeartbeat = (ws: WebSocket) => {
       clearHeartbeat();
@@ -177,8 +186,10 @@ export function useSalaWebSocket({
       if (cancelled) return;
       setStatus(retryRef.current === 0 ? "connecting" : "reconnecting");
 
+      closeActiveSocket();
+
       const ws = new WebSocket(wsUrl(salaId, token));
-      wsRef.current = ws;
+      activeWsRef.current = ws;
 
       ws.onopen = () => {
         if (cancelled || sessionId !== wsEffectSessionRef.current) return;
@@ -210,9 +221,9 @@ export function useSalaWebSocket({
           }
           if (msg.type === "patient_call") {
             const fromHistorySync = msg.play_audio === false;
-            callbacksRef.current.onPatientCall(msg, fromHistorySync);
+            onRegisterRef.current(msg, fromHistorySync);
           } else if (msg.type === "idle") {
-            callbacksRef.current.onIdle();
+            onIdleRef.current();
           } else if (msg.type === "ping") {
             ws.send("ping");
           }
@@ -223,6 +234,7 @@ export function useSalaWebSocket({
 
       ws.onclose = () => {
         if (cancelled) return;
+        if (activeWsRef.current === ws) activeWsRef.current = null;
         clearHeartbeat();
         setStatus("reconnecting");
         const delay =
@@ -243,18 +255,9 @@ export function useSalaWebSocket({
       cancelled = true;
       clearHeartbeat();
       clearReconnectTimer();
-      wsRef.current?.close();
-      wsRef.current = null;
+      closeActiveSocket();
     };
-  }, [
-    enabled,
-    salaId,
-    token,
-    recoverPendingCalls,
-    clearHeartbeat,
-    clearReconnectTimer,
-    scheduleReconnect,
-  ]);
+  }, [enabled, salaId, token, clearHeartbeat, clearReconnectTimer, closeActiveSocket]);
 
   return { status, browserOnline };
 }

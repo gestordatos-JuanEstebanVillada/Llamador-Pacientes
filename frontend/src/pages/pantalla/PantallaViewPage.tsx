@@ -9,6 +9,12 @@ import { useAuth } from "../../context/AuthContext";
 import { api } from "../../lib/api";
 import { useCallExpiry, useSalaWebSocket } from "../../hooks/useScreenWebSocket";
 import {
+  INCOMING_CALL_DEDUP_MS,
+  buildCanonicalCallKey,
+  markIncomingCallAccepted,
+  shouldIgnoreIncomingCall,
+} from "../../lib/incomingCallDedup";
+import {
   cancelPatientSpeech,
   playDingDongAsync,
   sleep,
@@ -35,6 +41,9 @@ function eventToCall(ev: PatientCallEvent): CurrentCall {
 type HistoryEntry = {
   paciente_nombre: string;
   consultorio_numero: string;
+  call_id: number | null;
+  canonicalKey: string;
+  registeredAtMs: number;
 };
 
 const WAITING_HISTORY_MAX = 3;
@@ -112,7 +121,7 @@ function WaitingHistoryPanel({ history }: { history: HistoryEntry[] }) {
         <div className="flex min-h-0 flex-1 flex-col justify-evenly divide-y divide-gray-100">
           {visible.map((item, idx) => (
             <div
-              key={`${item.paciente_nombre}-${item.consultorio_numero}-${idx}`}
+              key={item.canonicalKey || `${item.paciente_nombre}-${item.consultorio_numero}-${idx}`}
               className="flex items-center justify-between gap-3 py-1 sm:gap-4 sm:py-1.5"
             >
               <p className="min-w-0 flex-1 truncate text-[clamp(1rem,2.1vw,1.85rem)] font-bold capitalize text-slate-800">
@@ -145,7 +154,8 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
   const processingRef = useRef(false);
   const processorRunIdRef = useRef(0);
   const processorChainRef = useRef<Promise<void> | null>(null);
-  const seenCallIdsRef = useRef<Set<number>>(new Set());
+  const seenIdsRef = useRef<Set<string | number>>(new Set());
+  const recentCallsMapRef = useRef<Map<string, number>>(new Map());
   const audioStartedForCallIdRef = useRef<number | null>(null);
   const displayingCallIdRef = useRef<number | null>(null);
   const historyDisplayTimerRef = useRef<number | null>(null);
@@ -160,14 +170,40 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
 
   const syncQueueSize = () => setQueueSize(queueRef.current.length);
 
-  const addToHistory = useCallback((pacienteNombre: string, consultorioNumero: string) => {
-    setHistory((prev) =>
-      [{ paciente_nombre: pacienteNombre, consultorio_numero: consultorioNumero }, ...prev].slice(
-        0,
-        WAITING_HISTORY_MAX,
-      ),
-    );
-  }, []);
+  const appendHistoryOnce = useCallback(
+    (ev: PatientCallEvent, canonicalKey: string, registeredAtMs: number) => {
+      setHistory((prev) => {
+        const windowStart = registeredAtMs - INCOMING_CALL_DEDUP_MS;
+        const dup = prev.some(
+          (item) =>
+            item.canonicalKey === canonicalKey ||
+            (ev.call_id > 0 && item.call_id === ev.call_id) ||
+            (item.registeredAtMs >= windowStart &&
+              item.canonicalKey === canonicalKey),
+        );
+        const head = prev[0];
+        if (
+          head &&
+          (head.canonicalKey === canonicalKey ||
+            (ev.call_id > 0 && head.call_id === ev.call_id))
+        ) {
+          return prev;
+        }
+        if (dup) return prev;
+        return [
+          {
+            paciente_nombre: ev.paciente_nombre,
+            consultorio_numero: ev.consultorio_numero,
+            call_id: ev.call_id > 0 ? ev.call_id : null,
+            canonicalKey,
+            registeredAtMs,
+          },
+          ...prev,
+        ].slice(0, WAITING_HISTORY_MAX);
+      });
+    },
+    [],
+  );
 
   const returnToWaiting = useCallback(() => {
     displayingCallIdRef.current = null;
@@ -227,8 +263,6 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
           await sleep(QUEUE_ITEM_DISPLAY_MS);
           if (runId !== processorRunIdRef.current) break;
 
-          addToHistory(ev.paciente_nombre, ev.consultorio_numero);
-
           if (queueRef.current.length > 0) {
             const next = queueRef.current[0];
             if (next) applyCurrentCall(next);
@@ -246,31 +280,51 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
 
     processorChainRef.current = chain;
     return chain;
-  }, [addToHistory, applyCurrentCall, returnToWaiting]);
+  }, [applyCurrentCall, returnToWaiting]);
 
   const enqueueCall = useCallback(
     (ev: PatientCallEvent) => {
-      if (seenCallIdsRef.current.has(ev.call_id)) return;
-      seenCallIdsRef.current.add(ev.call_id);
       queueRef.current.push(ev);
       syncQueueSize();
-      void runQueueProcessor();
+      if (!processingRef.current) {
+        void runQueueProcessor();
+      }
     },
     [runQueueProcessor],
   );
 
-  const onPatientCall = useCallback(
-    (ev: PatientCallEvent, fromHistorySync: boolean) => {
-      const historyOnly = fromHistorySync || ev.play_audio === false;
-      if (historyOnly) {
-        seenCallIdsRef.current.add(ev.call_id);
-        addToHistory(ev.paciente_nombre, ev.consultorio_numero);
+  const registerIncomingCall = useCallback(
+    (raw: PatientCallEvent, fromHistorySync: boolean) => {
+      const canonicalKey = buildCanonicalCallKey(
+        cfg.salaId,
+        raw.consultorio_numero,
+        raw.paciente_nombre,
+      );
+      const now = Date.now();
+      if (
+        shouldIgnoreIncomingCall(seenIdsRef.current, recentCallsMapRef.current, {
+          callId: raw.call_id,
+          canonicalKey,
+          now,
+        })
+      ) {
         return;
       }
 
-      enqueueCall({ ...ev, play_audio: true });
+      markIncomingCallAccepted(seenIdsRef.current, recentCallsMapRef.current, {
+        callId: raw.call_id,
+        canonicalKey,
+        now,
+      });
+
+      appendHistoryOnce(raw, canonicalKey, now);
+
+      const historyOnly = fromHistorySync || raw.play_audio === false;
+      if (!historyOnly) {
+        enqueueCall({ ...raw, play_audio: true });
+      }
     },
-    [addToHistory, enqueueCall],
+    [appendHistoryOnce, cfg.salaId, enqueueCall],
   );
 
   const onIdle = useCallback(() => {
@@ -279,7 +333,8 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
     processingRef.current = false;
     processorChainRef.current = null;
     queueRef.current = [];
-    seenCallIdsRef.current.clear();
+    seenIdsRef.current.clear();
+    recentCallsMapRef.current.clear();
     audioStartedForCallIdRef.current = null;
     syncQueueSize();
     returnToWaiting();
@@ -291,7 +346,8 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
     processingRef.current = false;
     processorChainRef.current = null;
     queueRef.current = [];
-    seenCallIdsRef.current.clear();
+    seenIdsRef.current.clear();
+    recentCallsMapRef.current.clear();
     audioStartedForCallIdRef.current = null;
     displayingCallIdRef.current = null;
     syncQueueSize();
@@ -321,7 +377,8 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
     processingRef.current = false;
     processorChainRef.current = null;
     queueRef.current = [];
-    seenCallIdsRef.current.clear();
+    seenIdsRef.current.clear();
+    recentCallsMapRef.current.clear();
     audioStartedForCallIdRef.current = null;
     syncQueueSize();
     if (historyDisplayTimerRef.current !== null) {
@@ -347,8 +404,7 @@ function PantallaViewInner({ cfg, token }: { cfg: PantallaStoredConfig; token: s
     token,
     enabled: true,
     sessionStartedAtMs: sessionOpenedAtRef.current,
-    processedCallIdsRef: seenCallIdsRef,
-    onPatientCall,
+    onRegisterIncomingCall: registerIncomingCall,
     onIdle,
   });
 

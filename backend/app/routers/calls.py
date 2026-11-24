@@ -7,6 +7,7 @@ from app.database import get_db
 from app.models.entities import Consultorio, Llamada, Sala, Usuario
 from app.schemas.common import CallCreate, CurrentCallOut
 from app.services.audit_service import registrar_auditoria
+from app.services.call_idempotency import get_recent_duplicate, remember_recent_call
 from app.services.call_service import call_to_ws_payload, create_patient_call
 from app.websocket.manager import sala_manager
 
@@ -38,6 +39,14 @@ async def create_call(
             detail=_NO_INTERNET_MSG,
         )
 
+    duplicate = get_recent_duplicate(
+        consultorio.sala_id,
+        consultorio.numero,
+        body.paciente_nombre,
+    )
+    if duplicate:
+        return duplicate
+
     medico_id = user.medico_id
     try:
         llamada = create_patient_call(db, body.consultorio_id, body.paciente_nombre, medico_id)
@@ -68,7 +77,7 @@ async def create_call(
 
     sede = sala.sede
     ttl = get_settings().call_ttl_seconds
-    return CurrentCallOut(
+    response = CurrentCallOut(
         call_id=llamada.id,
         paciente_nombre=llamada.paciente_nombre,
         consultorio_numero=llamada.consultorio.numero,
@@ -78,3 +87,10 @@ async def create_call(
         fecha_expiracion=llamada.fecha_expiracion,
         ttl_seconds=ttl,
     )
+    remember_recent_call(
+        consultorio.sala_id,
+        consultorio.numero,
+        body.paciente_nombre,
+        response,
+    )
+    return response
