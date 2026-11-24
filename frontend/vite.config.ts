@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.svg", "img/logo-liga-50.png", "ding-dong.mp3"],
+      includeAssets: ["img/logo.svg", "img/logo-liga-50.png", "ding-dong.mp3"],
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2,mp4,webmanifest}"],
         maximumFileSizeToCacheInBytes: 30 * 1024 * 1024,
@@ -33,7 +33,7 @@ export default defineConfig({
         start_url: "/",
         icons: [
           {
-            src: "/favicon.svg",
+            src: "/img/logo.svg",
             sizes: "any",
             type: "image/svg+xml",
             purpose: "any",
