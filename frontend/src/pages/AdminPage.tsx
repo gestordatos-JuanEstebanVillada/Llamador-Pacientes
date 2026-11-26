@@ -1,5 +1,5 @@
-import { FormEvent, useCallback, useEffect, useState, type ReactNode } from "react";
-import { Building, MapPin, Pencil, Plus, Trash } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Building, MapPin, Pencil, Plus, Search, Trash, X } from "lucide-react";
 import toast from "react-hot-toast";
 import { Navigate } from "react-router-dom";
 
@@ -155,6 +155,116 @@ function CrudSection({
 }
 
 const DELETE_CONFIRM = "¿Estás seguro de que deseas eliminar este registro?";
+
+const PAGE_SIZE = 25;
+
+const STANDARD_USER_ROLES = ["ADMIN", "GESTOR", "MEDICO", "PANTALLA"] as const;
+
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function filterInputClass() {
+  return "w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-9 text-sm text-slate-800 outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20";
+}
+
+function AdminSearchInput({
+  value,
+  onChange,
+  placeholder,
+  id,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  id: string;
+}) {
+  return (
+    <div className="relative w-full max-w-md">
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+      <input
+        id={id}
+        type="search"
+        className={filterInputClass()}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {value.trim() !== "" && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          aria-label="Limpiar búsqueda"
+        >
+          <X className="h-4 w-4" aria-hidden />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function TablePaginationFooter({
+  currentPage,
+  totalPages,
+  totalFiltered,
+  startItem,
+  endItem,
+  onPrevious,
+  onNext,
+}: {
+  currentPage: number;
+  totalPages: number;
+  totalFiltered: number;
+  startItem: number;
+  endItem: number;
+  onPrevious: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-between gap-3 border-t border-gray-100 px-6 py-3.5 text-sm text-slate-600 sm:flex-row">
+      <p>
+        Mostrando {startItem}–{endItem} de {totalFiltered} registros
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={currentPage <= 1}
+          onClick={onPrevious}
+          className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Anterior
+        </button>
+        <span className="inline-flex items-center rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-medium text-white">
+          Página {currentPage} de {totalPages}
+        </span>
+        <button
+          type="button"
+          disabled={currentPage >= totalPages}
+          onClick={onNext}
+          className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Siguiente
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function usePaginatedSlice<T>(items: T[], currentPage: number) {
+  const totalFiltered = items.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (safePage - 1) * PAGE_SIZE;
+  const pageItems = items.slice(startIndex, startIndex + PAGE_SIZE);
+  const startItem = totalFiltered === 0 ? 0 : startIndex + 1;
+  const endItem = totalFiltered === 0 ? 0 : Math.min(startIndex + PAGE_SIZE, totalFiltered);
+  return { pageItems, totalFiltered, totalPages, safePage, startItem, endItem };
+}
 
 function toastDeleteError(err: unknown) {
   const message =
@@ -1011,6 +1121,30 @@ function CrudMedicos({
     }
   };
 
+  const [searchNombre, setSearchNombre] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const filteredMedicos = useMemo(() => {
+    const q = normalizeSearchText(searchNombre);
+    if (!q) return medicos;
+    return medicos.filter((m) => normalizeSearchText(m.nombre).includes(q));
+  }, [medicos, searchNombre]);
+
+  const { pageItems, totalFiltered, totalPages, safePage, startItem, endItem } = usePaginatedSlice(
+    filteredMedicos,
+    currentPage,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchNombre]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const onDelete = async (id: number) => {
     if (!window.confirm(DELETE_CONFIRM)) return;
     try {
@@ -1022,11 +1156,36 @@ function CrudMedicos({
     }
   };
 
+  const emptyMedicosMessage =
+    filteredMedicos.length === 0
+      ? searchNombre.trim()
+        ? "No se encontraron médicos que coincidan con la búsqueda."
+        : undefined
+      : undefined;
+
   return (
     <CrudSection title="Médicos" description="Profesionales que pueden llamar pacientes." onNew={openCreate} newLabel="Nuevo médico">
+      <AdminSearchInput
+        id="medicos-search"
+        value={searchNombre}
+        onChange={setSearchNombre}
+        placeholder="Buscar por nombre del médico..."
+      />
       <EntityTable
         headers={["ID", "Nombre", "Activo", ...actionsHeader(canEditDelete)]}
-        rows={medicos.map((m) => [
+        emptyMessage={emptyMedicosMessage}
+        footer={
+          <TablePaginationFooter
+            currentPage={safePage}
+            totalPages={totalPages}
+            totalFiltered={totalFiltered}
+            startItem={startItem}
+            endItem={endItem}
+            onPrevious={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            onNext={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+          />
+        }
+        rows={pageItems.map((m) => [
           m.id,
           m.nombre,
           m.activo ? "Sí" : "No",
@@ -1173,6 +1332,56 @@ function CrudUsuarios({
     }
   };
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedRole, setSelectedRole] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const medicoNombreById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const m of medicos) map.set(m.id, m.nombre);
+    return map;
+  }, [medicos]);
+
+  const roleOptions = useMemo(() => {
+    const fromData = usuarios.map((u) => u.rol).filter(Boolean);
+    return [...new Set([...STANDARD_USER_ROLES, ...fromData])].sort((a, b) => a.localeCompare(b));
+  }, [usuarios]);
+
+  const filtersActive = searchQuery.trim() !== "" || selectedRole !== "";
+
+  const filteredUsuarios = useMemo(() => {
+    const q = normalizeSearchText(searchQuery);
+    return usuarios.filter((u) => {
+      if (selectedRole && u.rol !== selectedRole) return false;
+      if (!q) return true;
+      const matchesUsername = normalizeSearchText(u.username).includes(q);
+      const medicoNombre =
+        u.medico_id != null ? medicoNombreById.get(u.medico_id) ?? "" : "";
+      const matchesMedico = normalizeSearchText(medicoNombre || "-").includes(q);
+      return matchesUsername || matchesMedico;
+    });
+  }, [usuarios, searchQuery, selectedRole, medicoNombreById]);
+
+  const { pageItems, totalFiltered, totalPages, safePage, startItem, endItem } = usePaginatedSlice(
+    filteredUsuarios,
+    currentPage,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedRole]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setSelectedRole("");
+  };
+
   const onDelete = async (id: number) => {
     if (!window.confirm(DELETE_CONFIRM)) return;
     try {
@@ -1184,6 +1393,11 @@ function CrudUsuarios({
     }
   };
 
+  const emptyUsuariosMessage =
+    filteredUsuarios.length === 0 && filtersActive
+      ? "No se encontraron usuarios con los filtros aplicados."
+      : undefined;
+
   return (
     <CrudSection
       title="Usuarios"
@@ -1192,9 +1406,53 @@ function CrudUsuarios({
       newLabel="Nuevo usuario"
       showNew={canCreateUser}
     >
+      <div className="mb-4 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+        <div className="relative w-full max-w-md flex-1">
+          <AdminSearchInput
+            id="usuarios-search-unified"
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="Buscar por usuario o nombre de médico..."
+          />
+        </div>
+        <select
+          className={`${filterInputClass()} w-full shrink-0 pl-3 pr-8 sm:w-52`}
+          value={selectedRole}
+          onChange={(e) => setSelectedRole(e.target.value)}
+          aria-label="Filtrar por rol"
+        >
+          <option value="">Todos los roles</option>
+          {roleOptions.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+        {filtersActive && (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="shrink-0 text-xs font-medium text-slate-500 hover:text-rose-600 sm:ml-1"
+          >
+            Limpiar filtros
+          </button>
+        )}
+      </div>
       <EntityTable
         headers={["ID", "Usuario", "Rol", "Médico", "Activo", ...actionsHeader(canEditDelete)]}
-        rows={usuarios.map((u) => [
+        emptyMessage={emptyUsuariosMessage}
+        footer={
+          <TablePaginationFooter
+            currentPage={safePage}
+            totalPages={totalPages}
+            totalFiltered={totalFiltered}
+            startItem={startItem}
+            endItem={endItem}
+            onPrevious={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            onNext={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+          />
+        }
+        rows={pageItems.map((u) => [
           u.id,
           u.username,
           u.rol,
@@ -1299,34 +1557,52 @@ function CrudUsuarios({
 function EntityTable({
   headers,
   rows,
+  emptyMessage,
+  footer,
 }: {
   headers: string[];
   rows: (string | number | ReactNode)[][];
+  emptyMessage?: string;
+  footer?: ReactNode;
 }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-sm">
-      <table className="w-full text-sm">
-        <thead className="bg-slate-50/80 text-slate-600">
-          <tr>
-            {headers.map((h) => (
-              <th key={h || "actions"} className="text-left px-4 py-3.5 font-medium">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="text-slate-800">
-          {rows.map((row, i) => (
-            <tr key={i} className="border-b border-gray-100 last:border-0 hover:bg-slate-50/50 transition-colors">
-              {row.map((cell, j) => (
-                <td key={j} className="px-4 py-3">
-                  {cell}
-                </td>
+    <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50/80 text-slate-600">
+            <tr>
+              {headers.map((h) => (
+                <th key={h || "actions"} className="px-4 py-3.5 text-left font-medium">
+                  {h}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="text-slate-800">
+            {rows.length === 0 && emptyMessage ? (
+              <tr>
+                <td colSpan={headers.length} className="px-4 py-10 text-center text-slate-500">
+                  {emptyMessage}
+                </td>
+              </tr>
+            ) : (
+              rows.map((row, i) => (
+                <tr
+                  key={i}
+                  className="border-b border-gray-100 transition-colors last:border-0 hover:bg-slate-50/50"
+                >
+                  {row.map((cell, j) => (
+                    <td key={j} className="px-4 py-3">
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      {footer}
     </div>
   );
 }
