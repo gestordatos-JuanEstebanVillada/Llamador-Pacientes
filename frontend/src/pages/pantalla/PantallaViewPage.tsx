@@ -67,27 +67,175 @@ function WaitingClock({ className = "" }: { className?: string }) {
   );
 }
 
+const institutionalVideoBlobCache: {
+  objectUrl: string | null;
+  inflight: Promise<string> | null;
+} = {
+  objectUrl: null,
+  inflight: null,
+};
+
+function releaseInstitutionalVideoBlob(): void {
+  if (institutionalVideoBlobCache.objectUrl) {
+    URL.revokeObjectURL(institutionalVideoBlobCache.objectUrl);
+    institutionalVideoBlobCache.objectUrl = null;
+  }
+}
+
+async function resolveInstitutionalPlaybackSrc(fallbackSrc: string): Promise<string> {
+  if (institutionalVideoBlobCache.objectUrl) {
+    return institutionalVideoBlobCache.objectUrl;
+  }
+  if (!institutionalVideoBlobCache.inflight) {
+    institutionalVideoBlobCache.inflight = (async () => {
+      try {
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          return fallbackSrc;
+        }
+        const response = await fetch(fallbackSrc);
+        if (!response.ok) throw new Error("video fetch failed");
+        const blob = await response.blob();
+        releaseInstitutionalVideoBlob();
+        const objectUrl = URL.createObjectURL(blob);
+        institutionalVideoBlobCache.objectUrl = objectUrl;
+        return objectUrl;
+      } catch {
+        return fallbackSrc;
+      } finally {
+        institutionalVideoBlobCache.inflight = null;
+      }
+    })();
+  }
+  return institutionalVideoBlobCache.inflight;
+}
+
 function WaitingInstitutionalVideo() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const needsReloadRef = useRef(false);
+  const reloadTimerRef = useRef<number | undefined>(undefined);
+  const objectUrlRef = useRef<string | null>(null);
+  const [playbackSrc, setPlaybackSrc] = useState(institutionalVideoUrl);
+
+  const recoverVideoPlayback = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const src = await resolveInstitutionalPlaybackSrc(institutionalVideoUrl);
+    objectUrlRef.current =
+      src !== institutionalVideoUrl ? src : objectUrlRef.current ?? null;
+    setPlaybackSrc(src);
+
+    const shouldRecover =
+      needsReloadRef.current ||
+      video.error != null ||
+      video.paused ||
+      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA;
+
+    if (!shouldRecover && !video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      needsReloadRef.current = false;
+      return;
+    }
+
+    video.muted = true;
+    video.loop = true;
+    video.playsInline = true;
+    const currentSrc = video.currentSrc || video.getAttribute("src") || "";
+    if (currentSrc !== src) {
+      video.src = src;
+    }
+
+    try {
+      video.load();
+      await video.play();
+      needsReloadRef.current = false;
+    } catch {
+      /* autoplay bloqueado hasta interacción en setup */
+    }
+  }, []);
+
+  const scheduleReloadIfOnline = useCallback(() => {
+    needsReloadRef.current = true;
+    if (!navigator.onLine) return;
+    if (reloadTimerRef.current !== undefined) {
+      window.clearTimeout(reloadTimerRef.current);
+    }
+    reloadTimerRef.current = window.setTimeout(() => {
+      reloadTimerRef.current = undefined;
+      void recoverVideoPlayback();
+    }, 1000);
+  }, [recoverVideoPlayback]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    void resolveInstitutionalPlaybackSrc(institutionalVideoUrl).then((src) => {
+      if (!mounted) return;
+      objectUrlRef.current = src !== institutionalVideoUrl ? src : null;
+      setPlaybackSrc(src);
+      void recoverVideoPlayback();
+    });
+
+    const onOnline = () => {
+      void resolveInstitutionalPlaybackSrc(institutionalVideoUrl).then(() => {
+        void recoverVideoPlayback();
+      });
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      const video = videoRef.current;
+      if (video?.paused) {
+        void recoverVideoPlayback();
+      }
+    };
+
+    const onPageHide = () => {
+      releaseInstitutionalVideoBlob();
+      objectUrlRef.current = null;
+    };
+
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
+      if (reloadTimerRef.current !== undefined) {
+        window.clearTimeout(reloadTimerRef.current);
+      }
+    };
+  }, [recoverVideoPlayback]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    void video.play().catch(() => {
-      /* autoplay bloqueado hasta interacción en setup */
-    });
-  }, []);
+    if (video.paused) {
+      void video.play().catch(() => {});
+    }
+  }, [playbackSrc]);
 
   return (
-    <div className="relative mx-auto aspect-video w-full max-w-[min(92vw,52vh)] shrink-0 overflow-hidden rounded-2xl bg-slate-900 shadow-lg lg:max-w-none">
+    <div className="relative mx-auto aspect-video w-full max-w-[min(92vw,52vh)] shrink-0 overflow-hidden rounded-2xl bg-slate-100 shadow-lg lg:max-w-none">
+      <div
+        className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center"
+        aria-hidden
+      >
+        <BrandLogo className="h-16 w-auto opacity-40 sm:h-20 lg:h-24" />
+      </div>
       <video
         ref={videoRef}
-        src={institutionalVideoUrl}
+        src={playbackSrc}
         autoPlay
         loop
         muted
         playsInline
-        className="h-full w-full object-cover"
+        onError={scheduleReloadIfOnline}
+        onStalled={scheduleReloadIfOnline}
+        onEmptied={scheduleReloadIfOnline}
+        className="relative z-10 h-full w-full object-cover"
         aria-label="Video institucional Fundación La Liga"
       />
     </div>
